@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Monitor PPPoE</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="brand">
+          <span class="brand__logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 12h3l2.2-6.5 4.1 13 3-9 1.7 2.5H21.5" />
+            </svg>
+          </span>
+          <div>
+            <div class="brand__name">Monitor PPPoE</div>
+            <div class="brand__sub">Diagnóstico en tiempo real</div>
+          </div>
+        </div>
+
+        <div class="topbar__user">
+          <span class="user-chip">
+            <span class="user-chip__dot"></span>
+            <span id="user-chip-name">—</span>
+          </span>
+          <button class="btn btn--ghost btn--sm" id="logout-btn" type="button">Salir</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="control-bar card">
+        <form class="control-bar__form" id="monitor-form">
+          <label class="field">
+            <span class="field__label">Usuario del BRAS</span>
+            <input
+              class="input"
+              id="subscriber"
+              name="subscriber"
+              placeholder="ej. cliente_pppoe"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </label>
+          <button class="btn btn--primary" id="monitor-btn" type="submit">
+            <span class="spinner" id="monitor-spinner" hidden></span>
+            <span id="monitor-btn-label">Monitorear</span>
+          </button>
+        </form>
+
+        <div class="session-tools" id="session-tools" hidden>
+          <span class="pill" id="state-pill">
+            <span class="pill__dot"></span>
+            <span id="state-pill-text">Inactivo</span>
+          </span>
+          <span class="countdown" title="Tiempo restante de la sesión">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            <span id="countdown">10:00</span>
+          </span>
+          <button class="btn btn--danger btn--sm" id="close-btn" type="button">Cerrar conexión</button>
+        </div>
+      </section>
+
+      <div class="alert" id="alert" role="status" aria-live="polite" hidden></div>
+
+      <section class="empty-state card view" id="idle-state">
+        <span class="empty-state__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2.5 12h3l2.2-6.5 4.1 13 3-9 1.7 2.5H21.5" />
+          </svg>
+        </span>
+        <h2>Monitoreo en tiempo real</h2>
+        <p>
+          Ingresá el usuario del abonado en el BRAS y presioná <b>Monitorear</b>.
+          El recurso es exclusivo: una sola persona puede monitorear a la vez y la
+          sesión dura como máximo 10 minutos.
+        </p>
+      </section>
+
+      <section class="dashboard view" id="dashboard" hidden>
+        <div class="metrics">
+          <article class="metric metric--up card">
+            <div class="metric__head">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 19V5" />
+                <path d="m5 12 7-7 7 7" />
+              </svg>
+              Subida
+            </div>
+            <div class="metric__value"><span id="up-value">—</span><span class="metric__unit">Mbps</span></div>
+          </article>
+
+          <article class="metric metric--down card">
+            <div class="metric__head">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 5v14" />
+                <path d="m5 12 7 7 7-7" />
+              </svg>
+              Bajada
+            </div>
+            <div class="metric__value"><span id="down-value">—</span><span class="metric__unit">Mbps</span></div>
+          </article>
+        </div>
+
+        <div class="grid">
+          <article class="chart-card card">
+            <div class="panel-head">
+              <h3>Tráfico en tiempo real</h3>
+              <span class="hint">Mbps · se actualiza según el BRAS</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="traffic-chart"></canvas>
+            </div>
+          </article>
+
+          <aside class="info-card card">
+            <div class="panel-head panel-head--flush">
+              <h3>Detalle de la sesión</h3>
+            </div>
+            <dl class="info-list">
+              <div class="info-row"><dt>MAC</dt><dd class="mono" id="info-mac">—</dd></div>
+              <div class="info-row"><dt>IP</dt><dd class="mono" id="info-ip">—</dd></div>
+              <div class="info-row"><dt>Inicio</dt><dd id="info-start">—</dd></div>
+              <div class="info-row"><dt>QoS subida</dt><dd id="info-in-qos">—</dd></div>
+              <div class="info-row"><dt>QoS bajada</dt><dd id="info-out-qos">—</dd></div>
+              <div class="info-row"><dt>PIR subida</dt><dd id="info-in-pir">—</dd></div>
+              <div class="info-row"><dt>CIR bajada</dt><dd id="info-out-cir">—</dd></div>
+            </dl>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script src="vendor/chart.umd.min.js"></script>
+    <script type="module" src="js/monitor.js"></script>
+  </body>
+</html>

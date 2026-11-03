@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Secretos / config local (opción A)
+backend/instance/config.py
+backend/instance/*.db
+*.db
+*.sqlite3
+
+# Sistema
+.DS_Store

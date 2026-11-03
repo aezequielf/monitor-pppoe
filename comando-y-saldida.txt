@@ -1,0 +1,146 @@
+comando exacto
+display access-user username usuairo verbose nop | no-more
+salida exacta
+  -------------------------------------------------------------------
+Basic:
+  User access index             : 39539
+  State                         : Used
+  User name                     : usuairo
+  Domain name                   : riotel_domain
+  User backup state             : No
+  RUI user state                : -
+  User access interface         : 100GE0/1/48.1370
+  User session (limit,online)   : (1,1)
+  User access PeVlan/CeVlan     : 1370/-
+  User access slot              : 0
+  User MAC                      : 7817-be3f-b60d
+  User IP address               : 200.49.122.133
+  User IP netmask               : 255.255.255.255
+  User gateway address          : 200.49.122.1
+  User Primary-DNS              : 200.49.120.2
+  User Secondary-DNS            : 200.49.120.3
+  User Authen IP Type           : ipv4/-/-
+  User Basic IP Type            : -/-/-
+  IPv6 address assignment mode    : -
+  RA link-prefix                  : Disable
+  Coa-zero-lease                : No
+  User access type              : PPPoE
+  User authentication type      : PPP authentication
+  Agent-Circuit-Id              : -
+  Agent-Remote-Id               : -
+  Access-line-id Information(pppoe+): -
+  Access start time             : 2026-10-14 07:11:43
+  User-Group                    : - 
+  Next-hop                      : - 
+  Policy-route-IPV6-address     : - 
+
+AAA:
+  RADIUS-server-template        : riotel_radius 
+  Server-template of second acct: -
+  Current authen method         : RADIUS authentication
+  Authen result                 : Success
+  Current author method         : Idle
+  Author result                 : Success
+  Action flag                   : Idle
+  Authen state                  : Authed
+  Author state                  : Idle
+  Configured accounting method  : RADIUS accounting
+  Quota-out                     : Offline
+  Current accounting method     : RADIUS accounting
+  Realtime-accounting-switch            : Close     
+  Realtime-accounting-interval(sec)     : -
+  Realtime-accounting-send-update       : No                  
+  Realtime-accounting-traffic-update    : No                  
+  Accounting start time         : 2026-10-14 07:11:43
+  Online time (h:min:sec)       : 481:57:54
+  Accounting state              : Accounting
+  Accounting session ID         : 13700439fcAAAKRt
+  MTU                           : 1492
+  MRU                           : 1492
+  Idle-cut direction            : Both
+  Idle-cut-data (time,rate,idle): 0 sec, 60 kbyte/min, 0 min 0 sec
+  Ipv4 Realtime speed           : 4 kbyte/min
+  Ipv4 Realtime speed inbound   : 2 kbyte/min
+  Ipv4 Realtime speed outbound  : 2 kbyte/min  
+  Calling-station-id            : 78:17:be:3f:b6:0d
+
+Dot1X:
+  User MSIDSN name              : -
+  EAP user                      : No
+  MD5 end                       : No
+
+VPN&Policy-route:
+  Vpn-Instance                  : -
+
+Multicast Service:
+  Multicast-profile             : - 
+  Multicast-profile-ipv6        : - 
+  Max Multicast List Number     : 4
+  IGMP enable                   : Yes
+  PIM-SM enable                 : No
+  PIM-SM-V6 enable              : No
+
+ACL&QoS:
+  Inbound QOS-profile-name      : fo_200_megas(Radius)
+  Outbound QOS-profile-name     : fo_200_megas(Radius)
+  Inbound qos configuration     : User-queue
+  Inbound cir                   : 112640(kbps)
+  Inbound pir                   : 112640(kbps)
+  Outbound qos configuration    : User-queue
+  Outbound cir                  : 215040(kbps)
+  Outbound pir                  : 215040(kbps)
+  Link bandwidth auto adapt     : Disable
+  UpPriority                    : Unchangeable
+  DownPriority                  : Unchangeable
+
+Flow Statistic:
+  If flow info contain l2-head  : Yes
+  Flow-Statistic-Up             : Yes
+  Flow-Statistic-Down           : Yes
+  Up packets number(high,low)   : (0,13533380)
+  Up bytes number(high,low)     : (2,183207074)
+  Down packets number(high,low) : (0,31616410)
+  Down bytes number(high,low)   : (9,432752470)
+  IPV6 Up packets number(high,low)     : (0,0)
+  IPV6 Up bytes number(high,low)       : (0,0)
+  IPV6 Down packets number(high,low)   : (0,0)
+  IPV6 Down bytes number(high,low)     : (0,0)
+
+Dslam information :
+  Circuit ID                       :-
+  Remote ID                        :-
+  Actual datarate upstream         :0(Kbps)
+  Actual datarate downstream       :0(Kbps)
+  Min datarate upstream            :0(Kbps)
+  Min datarate downstream          :0(Kbps)
+  Attainable datarate upstream     :0(Kbps)
+  Attainable datarate downstream   :0(Kbps)
+  Max datarate upstream            :0(Kbps)
+  Max datarate downstream          :0(Kbps)
+  Min lowpower datarate upstream   :0(Kbps)
+  Min lowpower datarate downstream :0(Kbps)
+  Max delay upstream               :0(s)
+  Max delay downstream             :0(s)
+  Actual delay upstream            :0(s)
+  Actual delay downstream          :0(s)
+  Access loop encapsulation        :0x000000
+  -------------------------------------------------------------------
+
+
+DAtos del que quiero mostrar en la pantalla solo una vez del apartado 
+Basic:
+    User MAC                      : 7817-be3f-b60d
+    User IP address               : 200.49.122.133 
+    Access start time             : 2026-10-14 07:11:43
+ACL&QoS:
+  Inbound QOS-profile-name      : fo_200_megas(Radius)
+  Outbound QOS-profile-name     : fo_200_megas(Radius)
+  Inbound pir                   : 112640(kbps)
+  Outbound cir                  : 215040(kbps)
+
+Datos que quiero se grafique en tiempo real y se consulten cada 3 segundos
+  Ipv4 Realtime speed inbound   : 2 kbyte/min
+  Ipv4 Realtime speed outbound  : 2 kbyte/min  
+
+Nota, para poder graficar se podría usar la librería chart.js dibujando una linea para down y otra para up, puede ser en el mismo gráfico o separado, como te parezca mejor
+y si tenés algo mejor que charts.js se aceptan sugerencias.

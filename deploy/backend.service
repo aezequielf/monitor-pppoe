@@ -1,0 +1,30 @@
+[Unit]
+Description=Monitor PPPoE — API FastAPI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=brasmonitor
+Group=brasmonitor
+WorkingDirectory=/opt/monitor-pppoe/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=BRAS_MONITOR_CONFIG=/opt/monitor-pppoe/backend/instance/config.py
+ExecStart=/opt/monitor-pppoe/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+UMask=0027
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/monitor-pppoe/backend/instance
+
+[Install]
+WantedBy=multi-user.target

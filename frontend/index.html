@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Ingresar · Monitor PPPoE</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body class="auth-page">
+    <div class="bg-glow bg-glow--a"></div>
+    <div class="bg-glow bg-glow--b"></div>
+
+    <main class="auth">
+      <section class="auth__card card">
+        <div class="brand brand--center">
+          <span class="brand__logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2.5 12h3l2.2-6.5 4.1 13 3-9 1.7 2.5H21.5" />
+            </svg>
+          </span>
+          <div>
+            <h1 class="brand__name">Monitor PPPoE</h1>
+            <p class="brand__sub">Diagnóstico de sesiones en el BRAS</p>
+          </div>
+        </div>
+
+        <form id="login-form" class="form" novalidate>
+          <label class="field">
+            <span class="field__label">Usuario</span>
+            <input class="input" id="username" name="username" autocomplete="username" required autofocus />
+          </label>
+
+          <label class="field">
+            <span class="field__label">Contraseña</span>
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" required />
+          </label>
+
+          <p class="form__error" id="login-error" hidden></p>
+
+          <button class="btn btn--primary btn--block" id="login-btn" type="submit">
+            <span class="spinner" id="login-spinner" hidden></span>
+            <span id="login-btn-label">Ingresar</span>
+          </button>
+        </form>
+      </section>
+
+      <p class="auth__foot">Acceso restringido · uso interno</p>
+    </main>
+
+    <script type="module" src="js/auth.js"></script>
+  </body>
+</html>

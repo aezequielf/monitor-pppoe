@@ -1,0 +1,1 @@
+"""Autenticación: usuarios SQLite + JWT."""
