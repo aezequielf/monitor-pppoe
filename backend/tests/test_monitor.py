@@ -79,7 +79,7 @@ def test_acquire_polls_and_release() -> None:
             assert lease.snapshot is not None
             assert lease.snapshot.state == "ok"
             assert lease.snapshot.static is not None
-            assert lease.snapshot.static.ip == "200.49.122.133"
+            assert lease.snapshot.static.ip == "203.0.113.10"
             assert manager.occupied() == 1
 
             await manager.release(lease, reason="manual")

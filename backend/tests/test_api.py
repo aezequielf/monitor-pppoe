@@ -32,7 +32,7 @@ class FakeLease:
             collected_at=datetime.now(timezone.utc),
             static=StaticInfo(
                 mac="00:11:22:33:44:55",
-                ip="200.49.122.133",
+                ip="203.0.113.10",
                 start_time="2026-11-03 10:00:00",
                 in_qos="PLAN-100",
                 out_qos="PLAN-100",
@@ -224,7 +224,7 @@ def test_snapshot_returns_typed_payload(monitor_client) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["state"] == "ok"
-    assert body["static"]["ip"] == "200.49.122.133"
+    assert body["static"]["ip"] == "203.0.113.10"
     assert body["static"]["start_time"] == "2026-11-03 10:00:00"
     assert body["latest"]["up_mbps"] == 12.5
     assert body["latest"]["down_mbps"] == 88.25

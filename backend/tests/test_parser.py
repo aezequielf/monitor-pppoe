@@ -23,11 +23,11 @@ def test_parse_ok_static_fields(raw: str) -> None:
     assert result.state == "ok"
     assert result.error_msg is None
     assert result.static is not None
-    assert result.static.mac == "7817-be3f-b60d"
-    assert result.static.ip == "200.49.122.133"
-    assert result.static.start_time == "2026-10-14 07:11:43"
-    assert result.static.in_qos == "fo_200_megas(Radius)"
-    assert result.static.out_qos == "fo_200_megas(Radius)"
+    assert result.static.mac == "aabb-ccdd-eeff"
+    assert result.static.ip == "203.0.113.10"
+    assert result.static.start_time == "2026-01-01 00:00:00"
+    assert result.static.in_qos == "plan_demo(Radius)"
+    assert result.static.out_qos == "plan_demo(Radius)"
     assert result.static.in_pir_kbps == 112640
     assert result.static.out_cir_kbps == 215040
 
