@@ -35,7 +35,7 @@ class BrasClient:
             "username": s.bras_user,
             "password": s.bras_password,
             "conn_timeout": s.bras_conn_timeout,
-            "read_timeout": s.bras_read_timeout,
+            "read_timeout_override": s.bras_read_timeout,
         }
         if s.bras_secret:
             kwargs["secret"] = s.bras_secret
