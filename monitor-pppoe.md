@@ -365,19 +365,20 @@ sudo chown -R brasmonitor:brasmonitor .venv
 sudo -u brasmonitor .venv/bin/pip install --no-cache-dir -r backend/requirements.txt
 
 # 2) Configuración local (NO se versiona)
-sudo mkdir -p backend/instance
-sudo cp backend/config.example.py backend/instance/config.py
-sudo chown brasmonitor:brasmonitor backend/instance
-sudo chmod 600 backend/instance/config.py
-sudo -u brasmonitor nano backend/instance/config.py
+sudo mkdir -p /opt/monitor-pppoe/backend/instance
+sudo cp /opt/monitor-pppoe/backend/config.example.py /opt/monitor-pppoe/backend/instance/config.py
+sudo chown -R brasmonitor:brasmonitor /opt/monitor-pppoe/backend/instance
+sudo chmod 600 /opt/monitor-pppoe/backend/instance/config.py
+sudo -u brasmonitor nano /opt/monitor-pppoe/backend/instance/config.py
 #   - BRAS_HOST / BRAS_USER / BRAS_PASSWORD / BRAS_SECRET reales
 #   - JWT_SECRET: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 #   - COOKIE_SECURE = True      (detrás de HTTPS)
 #   - SERVE_FRONTEND = False    (nginx sirve el front)
 
-# 3) Usuario del panel + SQLite
-sudo -u brasmonitor .venv/bin/python -m app.cli init-db
-sudo -u brasmonitor .venv/bin/python -m app.cli create-user --username admin
+# 3) Usuario del panel + SQLite (el módulo `app` vive en backend/)
+cd /opt/monitor-pppoe/backend
+sudo -u brasmonitor ../.venv/bin/python -m app.cli init-db
+sudo -u brasmonitor ../.venv/bin/python -m app.cli create-user --username admin
 
 # 4) Certificado autofirmado (SAN obligatorio en navegadores modernos)
 #    Si se accede por IP, agregar: -addext "subjectAltName=DNS:monitor.example.com,IP:10.0.0.5"
