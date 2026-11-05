@@ -463,6 +463,8 @@ p {
 /* ------------------------------------------------------------------ */
 
 .control-bar {
+  position: relative;
+  z-index: 10;
   padding: 16px 18px;
   display: flex;
   align-items: center;
@@ -472,14 +474,39 @@ p {
 }
 
 .control-bar__form {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 12px;
+  row-gap: 7px;
+  align-items: center;
   flex: 1 1 420px;
 }
 
 .control-bar__form .field {
-  flex: 1 1 auto;
+  display: contents;
+}
+
+.control-bar__form .field__label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.control-bar__form .combo {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.control-bar__form .field__hint {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.control-bar__form .btn {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
 }
 
 .control-bar__form .input {
@@ -909,11 +936,17 @@ p {
     grid-template-columns: 1fr;
   }
   .control-bar__form {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
     align-items: stretch;
   }
   .control-bar__form .btn {
+    grid-column: 1;
+    grid-row: 3;
     width: 100%;
+  }
+  .control-bar__form .field__hint {
+    grid-row: 4;
   }
   .session-tools {
     width: 100%;
