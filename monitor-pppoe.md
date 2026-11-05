@@ -502,13 +502,20 @@ sudo systemctl restart monitor-pppoe                                            
   (`ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges`; escritura solo en `backend/instance`).
 - **nginx**: `frontend/` en `/`, proxy `/api/` → uvicorn; `proxy_buffering off`,
   `proxy_read_timeout` alto, headers de seguridad y CSP estricta.
+- **Swagger/Redoc y CSP**: `/api/docs` y `/api/redoc` cargan su bundle desde jsDelivr y usan
+  un script de inicialización inline. Con `script-src 'self'` el HTML carga (se ve el título
+  "Swagger UI") pero queda en blanco. Por eso `deploy/nginx.conf` relaja la CSP **solo** para
+  esas dos rutas; el resto de la app sigue igual. Si el servidor no tiene salida a internet,
+  el CDN tampoco carga: conviene self-hostear los assets o deshabilitar la doc en producción
+  (`docs_url=None`, `redoc_url=None`, `openapi_url=None`).
 - **TLS autofirmado**: el navegador mostrará advertencia hasta aceptar la excepción. No activar
   HSTS hasta tener un certificado de confianza; para clientes/curl usar `-k` o instalar el `.crt`.
 - `COOKIE_SECURE=True` exige HTTPS (el `80` solo redirige). Si se prueba por HTTP, el refresh
   cookie no viaja.
 - CORS allowlist configurable **solo** para apps externas de otro origen (el front propio es
   mismo-origen, sin CORS).
-- Swagger/Redoc: `/api/docs` y `/api/redoc` (detrás del proxy `/api/`).
+- Swagger/Redoc: `/api/docs` y `/api/redoc` (detrás del proxy `/api/`). Ruta correcta:
+  `/api/docs` (no `/api/dosc`).
 
 ## 15. Seguridad
 
