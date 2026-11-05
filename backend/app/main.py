@@ -13,6 +13,7 @@ from .auth.users import init_db
 from .config import get_settings
 from .monitor.lease import LeaseManager
 from .monitor.router import router as monitor_router
+from .online_users import router as online_users_router
 
 settings = get_settings()
 
@@ -35,6 +36,10 @@ OPENAPI_TAGS = [
     {
         "name": "monitor",
         "description": "Sesión exclusiva (lease), stream SSE y datos del abonado.",
+    },
+    {
+        "name": "subscribers",
+        "description": "Búsqueda de usuarios conectados al NAS (autocompletado).",
     },
     {"name": "health", "description": "Estado del servicio."},
 ]
@@ -61,6 +66,7 @@ if settings.cors_origins:
 
 app.include_router(auth_router)
 app.include_router(monitor_router)
+app.include_router(online_users_router)
 
 
 @app.get("/api/v1/health", tags=["health"])

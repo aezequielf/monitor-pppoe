@@ -1,4 +1,5 @@
 import * as api from "./api.js";
+import { initUserAutocomplete } from "./autocomplete.js";
 import { CONFIG } from "./config.js";
 import { appendPoint, formatMbps, initChart, resetChart } from "./chart.js";
 
@@ -191,6 +192,19 @@ async function withRefresh(call) {
   }
 }
 
+const userSearch = initUserAutocomplete({
+  input: els.subscriber,
+  list: $("subscriber-suggestions"),
+  fetchUsers: async (prefix, signal) => {
+    try {
+      return await withRefresh(() => api.onlineUsers(prefix, signal));
+    } catch (error) {
+      if (error.status === 401) redirectToLogin();
+      throw error;
+    }
+  },
+});
+
 async function tryAcquire() {
   if (acquiring || lease || !currentUsername) return;
   acquiring = true;
@@ -217,6 +231,7 @@ async function tryAcquire() {
 
 function startSession(data) {
   exitBusy();
+  userSearch.close();
   lease = { id: data.lease_id, token: data.lease_token, username: data.username };
   expiresAt = new Date(data.expires_at);
   currentUsername = data.username;
@@ -455,6 +470,7 @@ els.form.addEventListener("submit", (event) => {
     return;
   }
   currentUsername = value;
+  userSearch.close();
   exitBusy();
   clearAlert();
   tryAcquire();

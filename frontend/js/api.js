@@ -27,7 +27,10 @@ async function readBody(response) {
   }
 }
 
-async function request(path, { method = "GET", body, auth = true, headers = {} } = {}) {
+async function request(
+  path,
+  { method = "GET", body, auth = true, headers = {}, signal } = {},
+) {
   const requestHeaders = { ...headers };
   if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
   if (auth && accessToken) requestHeaders["Authorization"] = `Bearer ${accessToken}`;
@@ -39,8 +42,10 @@ async function request(path, { method = "GET", body, auth = true, headers = {} }
       headers: requestHeaders,
       credentials: "same-origin",
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
     });
   } catch (error) {
+    if (error && error.name === "AbortError") throw error;
     throw new ApiError(0, "No se pudo contactar al servidor");
   }
 
@@ -81,6 +86,10 @@ export function me() {
 
 export function acquire(username) {
   return request("/monitor/leases", { method: "POST", body: { username } });
+}
+
+export function onlineUsers(prefix, signal) {
+  return request(`/online-users?prefix=${encodeURIComponent(prefix)}`, { signal });
 }
 
 export function releaseLease(token) {

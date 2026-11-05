@@ -50,6 +50,13 @@ DIR_UP = "inbound"                # inbound = subida (punto de vista del BRAS)
 DIR_DOWN = "outbound"             # outbound = bajada
 SAMPLE_MODE = "on_change"         # on_change | every_poll
 
+# --- Búsqueda de usuarios online (autocompletado) -----------------------
+# Webservice de dialup (HTTP interno, sin autenticación). Se consulta desde
+# el backend para evitar CORS/contenido mixto en el navegador.
+ONLINE_USERS_URL = "http://10.10.10.2/dialup2/webserv/"
+ONLINE_USERS_NAS_IP = "200.49.120.10"
+ONLINE_USERS_TIMEOUT = 5.0
+
 # --- CORS (apps externas en otro origen) --------------------------------
 CORS_ORIGINS = []
 

@@ -63,6 +63,11 @@ class Settings(BaseModel):
     dir_down: str = "outbound"
     sample_mode: str = "on_change"
 
+    # --- Búsqueda de usuarios online (webservice dialup del NAS) ---
+    online_users_url: str = "http://10.10.10.2/dialup2/webserv/"
+    online_users_nas_ip: str = "200.49.120.10"
+    online_users_timeout: float = 5.0
+
     # --- CORS (apps externas en otro origen) ---
     cors_origins: list[str] = Field(default_factory=list)
 

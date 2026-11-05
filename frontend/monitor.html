@@ -35,18 +35,35 @@
     <main class="container">
       <section class="control-bar card">
         <form class="control-bar__form" id="monitor-form">
-          <label class="field">
-            <span class="field__label">Usuario del BRAS</span>
-            <input
-              class="input"
-              id="subscriber"
-              name="subscriber"
-              placeholder="ej. cliente_pppoe"
-              autocomplete="off"
-              spellcheck="false"
-              required
-            />
-          </label>
+          <div class="field">
+            <label class="field__label" for="subscriber">Usuario del BRAS</label>
+            <div class="combo">
+              <input
+                class="input"
+                id="subscriber"
+                name="subscriber"
+                placeholder="ej. cliente_pppoe"
+                autocomplete="off"
+                spellcheck="false"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded="false"
+                aria-controls="subscriber-suggestions"
+                aria-describedby="subscriber-help"
+                required
+              />
+              <ul
+                class="combo__list"
+                id="subscriber-suggestions"
+                role="listbox"
+                aria-label="Usuarios conectados"
+                hidden
+              ></ul>
+            </div>
+            <span class="field__hint" id="subscriber-help">
+              Escribí al menos 3 caracteres para buscar entre los usuarios conectados.
+            </span>
+          </div>
           <button class="btn btn--primary" id="monitor-btn" type="submit">
             <span class="spinner" id="monitor-spinner" hidden></span>
             <span id="monitor-btn-label">Monitorear</span>

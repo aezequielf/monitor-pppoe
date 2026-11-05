@@ -187,6 +187,7 @@ Todas las apps consumen lo mismo. Auth REST con `Authorization: Bearer <jwt>`. E
 | POST | `/api/v1/auth/logout` | — | borra cookie de refresh |
 | GET | `/api/v1/auth/me` | Bearer | usuario actual |
 | GET | `/api/v1/monitor/status` | Bearer | `{capacidad, ocupados, libres, leases[]}` (sin exponer el subscriber) |
+| GET | `/api/v1/online-users?prefix=...` | Bearer | usuarios con sesión activa en el NAS que empiezan con el prefijo (mín. 3); `400` prefijo inválido; `502` webservice |
 | POST | `/api/v1/monitor/leases` | Bearer | body `{username}` → `201 {lease_id, lease_token, username, expires_at, expires_in}`; `409` ocupado (`owner`, `expira_en`, `segundos_restantes`); `400` username inválido; `502` falla SSH |
 | GET | `/api/v1/monitor/stream?lease_token=...` | lease token | SSE |
 | GET | `/api/v1/monitor/snapshot` | Bearer + `X-Lease-Token` | último snapshot cacheado (apps sin SSE) |
@@ -212,6 +213,36 @@ En `sin_conexion` no hay evento aparte: llega un `snapshot` con `state="sin_cone
 
 `ping` (comentario cada ~15 s) sirve además para detectar desconexión del cliente al escribir
 sobre socket cerrado.
+
+### 8.2 Webservice de usuarios online (autocompletado)
+
+El panel autocompleta el usuario del abonado con el webservice de dialup del NAS. Se consulta
+**desde el backend** (HTTP interno, sin autenticación) para evitar CORS y contenido mixto.
+
+```text
+GET http://10.10.10.2/dialup2/webserv/
+  ?accion=usuarios_online
+  &username=<prefijo de 3+ caracteres>
+  &ip=<IPv4 del NAS>
+```
+
+- `accion`: fijo, `usuarios_online`.
+- `username`: prefijo; mínimo 3 caracteres; devuelve usuarios cuyo nombre **comienza** con él.
+- `ip`: IPv4 del NAS (default `200.49.120.10`).
+
+Solo incluye sesiones activas (`AcctSessionTime = 0` y `AcctStopTime` nulo), sin duplicados.
+
+| Respuesta | Cuerpo |
+|---|---|
+| OK con usuarios | `{"status":"ok","resultado":["gbaigosar","gbarrera"]}` |
+| OK sin coincidencias | `{"status":"ok","resultado":[]}` |
+| Error | `{"status":"err","resultado":"Accion no reconocida o faltante ----"}` |
+
+El backend expone `GET /api/v1/online-users?prefix=...` (Bearer): valida el prefijo, deduplica,
+filtra y mapea errores/timeout del webservice a `502`. El front consulta **una sola vez al llegar
+a 3 caracteres** y los caracteres siguientes filtran localmente la lista.
+
+Claves: `ONLINE_USERS_URL`, `ONLINE_USERS_NAS_IP`, `ONLINE_USERS_TIMEOUT`.
 
 ## 9. Lease / ciclo de vida
 
@@ -255,6 +286,11 @@ Auth: access token en memoria, refresh token en cookie httpOnly (mismo origen).
 `js/config.js` con `API_BASE`, heartbeats cada 20 s y reintentos cada 5 s.
 El lease token viaja en `X-Lease-Token` (salvo SSE, que usa `?lease_token=`).
 
+Autocompletado del abonado (`js/autocomplete.js`): al llegar a **3 caracteres** consulta
+`GET /api/v1/online-users?prefix=...` (una sola vez por prefijo); los caracteres siguientes
+filtran localmente la lista. Se navega con flechas y se selecciona con Enter o clic. El
+backend hace de proxy al webservice HTTP interno para evitar CORS y contenido mixto.
+
 ## 11. Configuración (opción A: en repo pero gitignored)
 
 - `backend/instance/config.py` — **secretos, no versionado** (`.gitignore` incluye `backend/instance/`).
@@ -284,6 +320,9 @@ Claves:
 | `KBYTE_TIME_BASE` | `60` |
 | `DIR_UP`, `DIR_DOWN` | `inbound`, `outbound` |
 | `SAMPLE_MODE` | `on_change` |
+| `ONLINE_USERS_URL` | webservice dialup (default `http://10.10.10.2/dialup2/webserv/`) |
+| `ONLINE_USERS_NAS_IP` | IP del NAS a consultar (default `200.49.120.10`) |
+| `ONLINE_USERS_TIMEOUT` | `5.0` |
 
 ### Usuarios del panel (operadores)
 
@@ -313,15 +352,16 @@ backend/
     auth/{jwt.py,users.py,router.py}
     bras/{client.py,parser.py}
     monitor/{lease.py,poller.py,events.py,router.py}
+    online_users.py         # proxy al webservice de usuarios online
     cli.py                  # bootstrap / crear usuarios
   instance/config.py        # SECRETOS, gitignored
   config.example.py
-  tests/{test_parser.py,test_auth_config.py,test_monitor.py,fixtures/salida.txt}
+  tests/{test_parser.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/salida.txt}
   requirements.txt
 frontend/
   index.html monitor.html
   css/app.css
-  js/{config.js,api.js,auth.js,monitor.js,chart.js}
+  js/{config.js,api.js,auth.js,monitor.js,chart.js,autocomplete.js}
   vendor/chart.umd.min.js
 deploy/{backend.service,nginx.conf}
 .gitignore
@@ -337,6 +377,8 @@ deploy/{backend.service,nginx.conf}
   (`anyio.to_thread.run_sync`); cadencia `max(POLL_INTERVAL, dur_comando)`; snapshot con `version`.
 - **`monitor/events.py`**: generator SSE, keepalive, detección de corte (`GeneratorExit`/
   `CancelledError`), emisión solo en cambio.
+- **`online_users.py`**: proxy autenticado al webservice de dialup (`usuarios_online`),
+  timeout y mapeo de errores a `502`; deduplica y filtra por prefijo.
 
 ## 14. Despliegue (git clone / git pull + nginx + TLS autofirmado)
 
@@ -374,6 +416,8 @@ sudo -u brasmonitor nano /opt/monitor-pppoe/backend/instance/config.py
 #   - JWT_SECRET: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 #   - COOKIE_SECURE = True      (detrás de HTTPS)
 #   - SERVE_FRONTEND = False    (nginx sirve el front)
+#   - ONLINE_USERS_URL / ONLINE_USERS_NAS_IP solo si difieren del default
+#     (http://10.10.10.2/dialup2/webserv/ y 200.49.120.10)
 
 # 3) Usuario del panel + SQLite (el módulo `app` vive en backend/)
 cd /opt/monitor-pppoe/backend
@@ -448,6 +492,9 @@ sudo systemctl restart monitor-pppoe                                            
 - Rate-limit en login.
 - `lease_token` aleatorio, atado a user+slot; solo el dueño puede streamear/liberar.
 - Secretos en `instance/config.py` (`chmod 600`).
+- El webservice de usuarios online es HTTP interno: se consulta **desde el backend**
+  (no desde el navegador) para evitar CORS y contenido mixto; el endpoint del panel exige
+  sesión y valida el prefijo antes de llamarlo.
 
 ## 16. Calibraciones abiertas (ajustar sobre la marcha)
 
