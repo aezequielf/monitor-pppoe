@@ -28,11 +28,18 @@ class LatestSample(BaseModel):
     out_unit: Optional[str] = None
 
 
+class HostMetrics(BaseModel):
+    cpu_percent: Optional[int] = None
+    memory_percent: Optional[int] = None
+    online_users: Optional[int] = None
+
+
 class ParseResult(BaseModel):
     state: Literal["ok", "sin_conexion", "error"]
     error_msg: Optional[str] = None
     static: Optional[StaticInfo] = None
     latest: Optional[LatestSample] = None
+    host: Optional[HostMetrics] = None
 
 
 class MonitorSnapshot(BaseModel):
@@ -44,6 +51,7 @@ class MonitorSnapshot(BaseModel):
     collected_at: datetime
     static: Optional[StaticInfo] = None
     latest: Optional[LatestSample] = None
+    host: Optional[HostMetrics] = None
 
 
 # --- Auth ---------------------------------------------------------------

@@ -168,4 +168,39 @@ def to_snapshot(
         collected_at=collected_at or datetime.now(timezone.utc),
         static=result.static,
         latest=result.latest,
+        host=result.host,
     )
+
+
+# --- Métricas del NAS (CPU / memoria / usuarios online) ------------------
+
+_CPU_RE = re.compile(
+    r"System cpu use rate is\s*:\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
+)
+_MEMORY_RE = re.compile(
+    r"Memory Using Percentage Is\s*:\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
+)
+_TOTAL_USERS_RE = re.compile(r"Total users\s*:\s*(\d+)", re.IGNORECASE)
+
+
+def _percent(raw: str, pattern: re.Pattern[str]) -> Optional[int]:
+    match = pattern.search(raw)
+    if match is None:
+        return None
+    return int(round(float(match.group(1))))
+
+
+def parse_cpu_usage(raw: str) -> Optional[int]:
+    """Extrae `System cpu use rate is : NN%` de `display cpu-usage`."""
+    return _percent(raw, _CPU_RE)
+
+
+def parse_memory_usage(raw: str) -> Optional[int]:
+    """Extrae `Memory Using Percentage Is: NN%` de `display memory-usage`."""
+    return _percent(raw, _MEMORY_RE)
+
+
+def parse_access_user_summary(raw: str) -> Optional[int]:
+    """Extrae `Total users : N` de `display access-user summary`."""
+    match = _TOTAL_USERS_RE.search(raw)
+    return int(match.group(1)) if match else None

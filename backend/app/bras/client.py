@@ -8,6 +8,7 @@ from typing import Optional
 from netmiko import ConnectHandler
 
 from ..config import Settings
+from .parser import parse_access_user_summary, parse_cpu_usage, parse_memory_usage
 
 
 class BrasClient:
@@ -63,11 +64,8 @@ class BrasClient:
         if not re.fullmatch(self._settings.username_regex, username):
             raise ValueError("Nombre de usuario inválido")
 
-    def query(self, username: str) -> str:
-        """Ejecuta el comando de monitoreo y devuelve la salida cruda."""
-        self.validate_username(username)
+    def _send(self, command: str) -> str:
         self._ensure_connected()
-        command = self._settings.command_template.format(username=username)
         try:
             return self._conn.send_command(
                 command, read_timeout=self._settings.bras_read_timeout
@@ -79,6 +77,21 @@ class BrasClient:
             return self._conn.send_command(
                 command, read_timeout=self._settings.bras_read_timeout
             )
+
+    def query(self, username: str) -> str:
+        """Ejecuta el comando de monitoreo y devuelve la salida cruda."""
+        self.validate_username(username)
+        command = self._settings.command_template.format(username=username)
+        return self._send(command)
+
+    def cpu_usage(self) -> int | None:
+        return parse_cpu_usage(self._send(self._settings.cpu_command))
+
+    def memory_usage(self) -> int | None:
+        return parse_memory_usage(self._send(self._settings.memory_command))
+
+    def online_users(self) -> int | None:
+        return parse_access_user_summary(self._send(self._settings.users_command))
 
     def close(self) -> None:
         if self._conn is not None:

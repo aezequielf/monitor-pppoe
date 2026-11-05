@@ -741,6 +741,56 @@ p {
   gap: 18px;
 }
 
+.host-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.host-metric {
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.host-metric__label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.host-metric__value {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.host-metric--cpu .host-metric__value {
+  color: var(--amber);
+}
+
+.host-metric--memory .host-metric__value {
+  color: var(--violet);
+}
+
+.host-metric--users .host-metric__value {
+  color: var(--green);
+}
+
+.host-metric__unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -933,6 +983,9 @@ p {
     display: none;
   }
   .metrics {
+    grid-template-columns: 1fr;
+  }
+  .host-metrics {
     grid-template-columns: 1fr;
   }
   .control-bar__form {

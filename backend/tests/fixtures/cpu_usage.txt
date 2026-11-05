@@ -1,0 +1,19 @@
+Cpu utilization statistics at 2026-11-05 11:22:38 554 ms
+System cpu use rate is : 14%
+Cpu utilization for five seconds: 14% ;  one minute: 13% ;  five minutes: 12%.
+Max CPU Usage : 32%
+Max CPU Usage Stat. Time : 2026-11-02 13:37:22 031 ms
+---------------------------
+ServiceName  UseRate
+---------------------------
+SYSTEM           14%
+AAA               0%
+BRAS              0%
+---------------------------
+CPU Usage Details
+----------------------------------------------------------------
+CPU     Current  FiveSec   OneMin  FiveMin  Max MaxTime
+----------------------------------------------------------------
+cpu0        15%      15%      13%      12%  37% 2026-11-02 13:37:24
+cpu1        14%      15%      16%      13%  25% 2026-11-02 13:37:24
+----------------------------------------------------------------

@@ -103,6 +103,27 @@
       </section>
 
       <section class="dashboard view" id="dashboard" hidden>
+        <div class="host-metrics">
+          <article class="host-metric host-metric--cpu card">
+            <span class="host-metric__label">CPU del NAS</span>
+            <div class="host-metric__value">
+              <span id="host-cpu-value">—</span><span class="host-metric__unit">%</span>
+            </div>
+          </article>
+          <article class="host-metric host-metric--memory card">
+            <span class="host-metric__label">Memoria del NAS</span>
+            <div class="host-metric__value">
+              <span id="host-memory-value">—</span><span class="host-metric__unit">%</span>
+            </div>
+          </article>
+          <article class="host-metric host-metric--users card">
+            <span class="host-metric__label">Usuarios online</span>
+            <div class="host-metric__value">
+              <span id="host-users-value">—</span>
+            </div>
+          </article>
+        </div>
+
         <div class="metrics">
           <article class="metric metric--up card">
             <div class="metric__head">

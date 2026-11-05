@@ -1,0 +1,11 @@
+Memory utilization statistics at 2026-11-05 11:25:02 782 ms
+System Total Memory Is: 31676908 Kbytes
+Total Memory Used Is: 4705176 Kbytes
+Memory Using Percentage Is: 14%
+----------------------------------------
+Process memory information in the slot:
+----------------------------------------
+ProcessId  ProcessName      Used(Kbytes)
+----------------------------------------
+0          system                1805130
+----------------------------------------

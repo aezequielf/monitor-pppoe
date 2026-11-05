@@ -22,6 +22,9 @@ const els = {
   dashboard: $("dashboard"),
   upValue: $("up-value"),
   downValue: $("down-value"),
+  hostCpu: $("host-cpu-value"),
+  hostMemory: $("host-memory-value"),
+  hostUsers: $("host-users-value"),
   userChip: $("user-chip-name"),
   chartCanvas: $("traffic-chart"),
   info: {
@@ -130,6 +133,22 @@ function resetInfo() {
   Object.values(els.info).forEach((node) => {
     node.textContent = "—";
   });
+}
+
+function hostNumber(value, { thousands = false } = {}) {
+  if (!Number.isFinite(value)) return "—";
+  return thousands ? value.toLocaleString("es-AR") : String(value);
+}
+
+function setHostMetrics(host) {
+  const data = host || {};
+  els.hostCpu.textContent = hostNumber(data.cpu_percent);
+  els.hostMemory.textContent = hostNumber(data.memory_percent);
+  els.hostUsers.textContent = hostNumber(data.online_users, { thousands: true });
+}
+
+function resetHostMetrics() {
+  setHostMetrics(null);
 }
 
 function updateInfo(info) {
@@ -245,6 +264,7 @@ function startSession(data) {
   if (!chart) chart = initChart(els.chartCanvas);
   resetChart();
   resetInfo();
+  resetHostMetrics();
   setMetric(null, null);
   setPill("warn", "Conectando…");
   updateCountdown();
@@ -308,6 +328,7 @@ function closeStream() {
 function handleSnapshot(snapshot) {
   if (!lease) return;
   updateInfo(snapshot.static || {});
+  setHostMetrics(snapshot.host);
 
   if (snapshot.state === "sin_conexion") {
     setPill("warn", "Sin conexión");
@@ -414,6 +435,7 @@ function teardown() {
   setPill("idle", "Inactivo");
   setMonitorLoading(false);
   resetInfo();
+  resetHostMetrics();
   setMetric(null, null);
 }
 

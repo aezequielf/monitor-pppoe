@@ -22,6 +22,10 @@ BRAS_CONN_TIMEOUT = 15
 BRAS_READ_TIMEOUT = 30
 
 COMMAND_TEMPLATE = "display access-user username {username} verbose nop | no-more"
+# Métricas del NAS que se muestran junto al abonado
+CPU_COMMAND = "display cpu-usage | no-more"
+MEMORY_COMMAND = "display memory-usage | no-more"
+USERS_COMMAND = "display access-user summary"
 USERNAME_REGEX = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$"
 
 # --- Auth / JWT ---------------------------------------------------------

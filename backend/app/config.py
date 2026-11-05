@@ -37,6 +37,9 @@ class Settings(BaseModel):
     command_template: str = (
         "display access-user username {username} verbose nop | no-more"
     )
+    cpu_command: str = "display cpu-usage | no-more"
+    memory_command: str = "display memory-usage | no-more"
+    users_command: str = "display access-user summary"
     username_regex: str = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$"
 
     # --- Auth / JWT ---

@@ -1,0 +1,11 @@
+  Normal users                       : 8566
+  RUI Local users                    : 0
+  RUI Remote users                   : 0
+  -----------------------------------------------
+  Radius authentication              : 8565
+  Radius proxy authentication        : 0
+  No authentication                  : 0
+  Local authentication               : 1
+  Tacacs authentication              : 0
+  -----------------------------------------------
+  Total users                        : 8566

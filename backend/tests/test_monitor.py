@@ -32,6 +32,15 @@ class FakeClient:
         self.queries += 1
         return self._raw
 
+    def cpu_usage(self) -> int:
+        return 14
+
+    def memory_usage(self) -> int:
+        return 21
+
+    def online_users(self) -> int:
+        return 8566
+
     def close(self) -> None:
         self.closed = True
 
@@ -80,6 +89,10 @@ def test_acquire_polls_and_release() -> None:
             assert lease.snapshot.state == "ok"
             assert lease.snapshot.static is not None
             assert lease.snapshot.static.ip == "203.0.113.10"
+            assert lease.snapshot.host is not None
+            assert lease.snapshot.host.cpu_percent == 14
+            assert lease.snapshot.host.memory_percent == 21
+            assert lease.snapshot.host.online_users == 8566
             assert manager.occupied() == 1
 
             await manager.release(lease, reason="manual")

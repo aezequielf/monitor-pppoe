@@ -145,6 +145,21 @@ Por eso:
 `tests/test_parser.py` contra `tests/fixtures/salida.txt` (copia de la salida real de
 `comando-y-saldida.txt`). Incluye casos: 1 bloque, 0 bloques, >1 bloques.
 
+### 6.5 Métricas del NAS
+
+Además del abonado, cada ciclo del poller consulta el estado del NAS y lo publica en
+`snapshot.host`:
+
+| Comando | Dato | Parseo |
+|---|---|---|
+| `display cpu-usage \| no-more` | CPU | `System cpu use rate is : 14%` → `host.cpu_percent` |
+| `display memory-usage \| no-more` | Memoria | `Memory Using Percentage Is: 14%` → `host.memory_percent` |
+| `display access-user summary` | Usuarios | `Total users : 8566` → `host.online_users` |
+
+Se consultan en cada poll (5 s). Con `SAMPLE_MODE=on_change` el snapshot se emite si cambió
+el tráfico **o** alguna de estas métricas. Si un comando de métricas falla, no se corta la
+sesión: ese campo queda en `null` y se sigue monitoreando al abonado.
+
 ## 7. Modelo de datos (Pydantic)
 
 ```python
@@ -164,6 +179,11 @@ class LatestSample(BaseModel):
     in_raw: float | None
     out_raw: float | None
 
+class HostMetrics(BaseModel):
+    cpu_percent: int | None
+    memory_percent: int | None
+    online_users: int | None
+
 class MonitorSnapshot(BaseModel):
     username: str
     online: bool
@@ -173,6 +193,7 @@ class MonitorSnapshot(BaseModel):
     collected_at: datetime
     static: StaticInfo
     latest: LatestSample | None
+    host: HostMetrics | None
 ```
 
 ## 8. API v1
@@ -282,6 +303,9 @@ Gráfica: Chart.js 4 local (`frontend/vendor/chart.umd.min.js`), dos datasets (s
 `animation:false`, ventana rolling de 180 puntos, eje Y en Mbps; tarjetas con el valor actual.
 Colores: subida `#22d3ee`, bajada `#a78bfa`.
 
+Arriba de subida/bajada se muestran tres métricas del NAS: **CPU**, **memoria** y **usuarios
+online** (`snapshot.host`). Se actualizan con cada snapshot (solo cuando cambian).
+
 Auth: access token en memoria, refresh token en cookie httpOnly (mismo origen).
 `js/config.js` con `API_BASE`, heartbeats cada 20 s y reintentos cada 5 s.
 El lease token viaja en `X-Lease-Token` (salvo SSE, que usa `?lease_token=`).
@@ -308,6 +332,9 @@ Claves:
 | `BRAS_DEVICE_TYPE` | `huawei` |
 | `BRAS_CONN_TIMEOUT`, `BRAS_READ_TIMEOUT` | timeouts SSH |
 | `COMMAND_TEMPLATE` | `display access-user username {username} verbose nop \| no-more` |
+| `CPU_COMMAND` | `display cpu-usage \| no-more` |
+| `MEMORY_COMMAND` | `display memory-usage \| no-more` |
+| `USERS_COMMAND` | `display access-user summary` |
 | `USERNAME_REGEX` | charset seguro del abonado |
 | `JWT_SECRET`, `JWT_ALG`, `ACCESS_TTL`, `REFRESH_TTL` | auth |
 | `DATABASE_PATH` | SQLite de usuarios (default `backend/instance/bras_monitor.db`) |
@@ -356,7 +383,7 @@ backend/
     cli.py                  # bootstrap / crear usuarios
   instance/config.py        # SECRETOS, gitignored
   config.example.py
-  tests/{test_parser.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/salida.txt}
+  tests/{test_parser.py,test_host_metrics.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/}
   requirements.txt
 frontend/
   index.html monitor.html
@@ -375,6 +402,7 @@ deploy/{backend.service,nginx.conf}
 - **`monitor/lease.py`**: `LeaseManager` con slots, `acquire/release`, timers, gracia, heartbeat.
 - **`monitor/poller.py`**: task asyncio por slot; Netmiko bloqueante en threadpool
   (`anyio.to_thread.run_sync`); cadencia `max(POLL_INTERVAL, dur_comando)`; snapshot con `version`.
+  En el mismo ciclo consulta CPU/memoria/usuarios del NAS y publica si cambió cualquiera.
 - **`monitor/events.py`**: generator SSE, keepalive, detección de corte (`GeneratorExit`/
   `CancelledError`), emisión solo en cambio.
 - **`online_users.py`**: proxy autenticado al webservice de dialup (`usuarios_online`),
