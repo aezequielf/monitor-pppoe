@@ -5,16 +5,22 @@ from pathlib import Path
 
 import pytest
 
-from app.bras.parser import kbyte_to_mbps, parse_access_user, to_snapshot
+from app.bras.parser import (
+    parse_access_user,
+    parse_qos_pass_bytes,
+    to_snapshot,
+)
+from app.schemas import LatestSample
 
-FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
-
-EXPECTED_MBPS = 2 * 1024 * 8 / 60 / 1_000_000
+FIXTURES = Path(__file__).parent / "fixtures"
+RAW = FIXTURES / "salida.txt"
+QOS_OUT = FIXTURES / "qos_outbound.txt"
+QOS_IN = FIXTURES / "qos_inbound.txt"
 
 
 @pytest.fixture
 def raw() -> str:
-    return FIXTURE.read_text(encoding="utf-8")
+    return RAW.read_text(encoding="utf-8")
 
 
 def test_parse_ok_static_fields(raw: str) -> None:
@@ -22,6 +28,7 @@ def test_parse_ok_static_fields(raw: str) -> None:
 
     assert result.state == "ok"
     assert result.error_msg is None
+    assert result.user_id == 10001
     assert result.static is not None
     assert result.static.mac == "aabb-ccdd-eeff"
     assert result.static.ip == "203.0.113.10"
@@ -32,25 +39,42 @@ def test_parse_ok_static_fields(raw: str) -> None:
     assert result.static.out_cir_kbps == 215040
 
 
-def test_parse_ok_realtime_speeds(raw: str) -> None:
-    result = parse_access_user(raw)
-
-    assert result.latest is not None
-    assert result.latest.in_raw == 2.0
-    assert result.latest.out_raw == 2.0
-    assert result.latest.in_unit == "kbyte/min"
-    assert result.latest.out_unit == "kbyte/min"
-    # inbound = subida, outbound = bajada (punto de vista del BRAS)
-    assert result.latest.up_mbps == pytest.approx(EXPECTED_MBPS)
-    assert result.latest.down_mbps == pytest.approx(EXPECTED_MBPS)
+def test_parse_does_not_build_rate_sample(raw: str) -> None:
+    assert parse_access_user(raw).latest is None
 
 
-def test_direction_is_configurable(raw: str) -> None:
-    swapped = parse_access_user(raw, up_field="outbound", down_field="inbound")
-    assert swapped.state == "ok"
-    assert swapped.latest is not None
-    assert swapped.latest.in_raw == 2.0
-    assert swapped.latest.out_raw == 2.0
+def test_parse_qos_outbound() -> None:
+    raw = QOS_OUT.read_text(encoding="utf-8")
+    assert parse_qos_pass_bytes(raw) == 43_149_452_521
+
+
+def test_parse_qos_inbound() -> None:
+    raw = QOS_IN.read_text(encoding="utf-8")
+    assert parse_qos_pass_bytes(raw) == 8_941_651_101
+
+
+def test_parse_qos_without_classes_uses_first_pass_line() -> None:
+    raw = """
+ user-id 17 inbound user-car statistics:
+  Pass:                            1,380,789 packets,                  1,938,627,756 bytes
+  Discard:                         817,891 packets,                    1,148,318,964 bytes
+"""
+    assert parse_qos_pass_bytes(raw) == 1_938_627_756
+
+
+def test_parse_qos_invalid_output() -> None:
+    assert parse_qos_pass_bytes("") is None
+    assert parse_qos_pass_bytes("Total users : 1") is None
+
+
+def test_parse_qos_without_total_does_not_use_partial_class() -> None:
+    raw = """
+ [be]
+  Pass:                            1,380,789 packets,                  1,938,627,756 bytes
+ [af1]
+  Pass:                                1,000 packets,                      1,000 bytes
+"""
+    assert parse_qos_pass_bytes(raw) is None
 
 
 def test_sin_conexion_when_no_block() -> None:
@@ -67,7 +91,14 @@ def test_multiple_sessions_is_error(raw: str) -> None:
 
 def test_to_snapshot(raw: str) -> None:
     moment = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    result = parse_access_user(raw, now=moment)
+    result = parse_access_user(raw)
+    result.latest = LatestSample(
+        ts=moment,
+        up_mbps=3.2,
+        down_mbps=12.8,
+        up_bytes=8_941_651_101,
+        down_bytes=43_149_452_521,
+    )
     snapshot = to_snapshot("usuario", result, version=7)
 
     assert snapshot.username == "usuario"
@@ -76,9 +107,3 @@ def test_to_snapshot(raw: str) -> None:
     assert snapshot.state == "ok"
     assert snapshot.latest is not None
     assert snapshot.latest.ts == moment
-
-
-def test_kbyte_to_mbps() -> None:
-    assert kbyte_to_mbps(None) is None
-    assert kbyte_to_mbps(2.0) == pytest.approx(EXPECTED_MBPS)
-    assert kbyte_to_mbps(1.0, time_base=1) == pytest.approx(1024 * 8 / 1_000_000)

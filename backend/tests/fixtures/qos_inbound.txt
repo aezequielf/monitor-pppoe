@@ -1,0 +1,20 @@
+ user-id 10001 inbound user-queue statistics:
+ [be]
+  Pass:                            14,287,506 packets,                 8,941,651,101 bytes
+  Discard:                         119,429 packets,                    171,157,725 bytes
+  Last 5 minutes pass rate:
+                                   2 pps,                              1,160 bps
+  Last 5 minutes discard rate:
+                                   0 pps,                              0 bps
+ [af1]
+  Pass:                            0 packets,                          0 bytes
+  Discard:                         0 packets,                          0 bytes
+  Last 5 minutes pass rate:
+                                   0 pps,                              0 bps
+ [total]
+  Pass:                            14,287,506 packets,                 8,941,651,101 bytes
+  Discard:                         119,429 packets,                    171,157,725 bytes
+  Last 5 minutes pass rate:
+                                   2 pps,                              1,160 bps
+  Last 5 minutes discard rate:
+                                   0 pps,                              0 bps

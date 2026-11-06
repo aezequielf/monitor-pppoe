@@ -37,6 +37,8 @@ class Settings(BaseModel):
     command_template: str = (
         "display access-user username {username} verbose nop | no-more"
     )
+    qos_inbound_command: str = "display qos user-id {user_id} inbound | no-more"
+    qos_outbound_command: str = "display qos user-id {user_id} outbound | no-more"
     cpu_command: str = "display cpu-usage | no-more"
     memory_command: str = "display memory-usage | no-more"
     users_command: str = "display access-user summary"
@@ -59,11 +61,7 @@ class Settings(BaseModel):
     disconnect_grace: int = 10
     heartbeat_ttl: int = 45
 
-    # --- Unidades / mapeo de dirección ---
-    kbyte_unit_bytes: int = 1024
-    kbyte_time_base: int = 60
-    dir_up: str = "inbound"
-    dir_down: str = "outbound"
+    # --- Muestreo ---
     sample_mode: str = "on_change"
 
     # --- Búsqueda de usuarios online (webservice dialup del NAS) ---

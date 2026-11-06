@@ -8,7 +8,12 @@ from typing import Optional
 from netmiko import ConnectHandler
 
 from ..config import Settings
-from .parser import parse_access_user_summary, parse_cpu_usage, parse_memory_usage
+from .parser import (
+    parse_access_user_summary,
+    parse_cpu_usage,
+    parse_memory_usage,
+    parse_qos_pass_bytes,
+)
 
 
 class BrasClient:
@@ -83,6 +88,17 @@ class BrasClient:
         self.validate_username(username)
         command = self._settings.command_template.format(username=username)
         return self._send(command)
+
+    def _qos_pass_bytes(self, template: str, user_id: int) -> int | None:
+        if not isinstance(user_id, int) or user_id < 0:
+            raise ValueError("UserID inválido")
+        return parse_qos_pass_bytes(self._send(template.format(user_id=user_id)))
+
+    def qos_inbound(self, user_id: int) -> int | None:
+        return self._qos_pass_bytes(self._settings.qos_inbound_command, user_id)
+
+    def qos_outbound(self, user_id: int) -> int | None:
+        return self._qos_pass_bytes(self._settings.qos_outbound_command, user_id)
 
     def cpu_usage(self) -> int | None:
         return parse_cpu_usage(self._send(self._settings.cpu_command))

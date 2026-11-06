@@ -43,7 +43,7 @@ def _result(cpu: int) -> ParseResult:
     ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
     return ParseResult(
         state="ok",
-        latest=LatestSample(ts=ts, in_raw=1, out_raw=2),
+        latest=LatestSample(ts=ts, up_bytes=1, down_bytes=2),
         host=HostMetrics(cpu_percent=cpu, memory_percent=20, online_users=100),
     )
 

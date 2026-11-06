@@ -15,11 +15,14 @@ FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
 
 
 class FakeClient:
-    def __init__(self, settings, raw) -> None:
+    def __init__(self, settings, raw, qos_increment: int = 0) -> None:
         self._raw = raw
         self.connected = False
         self.closed = False
         self.queries = 0
+        self.qos_increment = qos_increment
+        self.up_bytes = 0
+        self.down_bytes = 0
 
     def validate_username(self, username: str) -> None:
         if not username or " " in username:
@@ -31,6 +34,14 @@ class FakeClient:
     def query(self, username: str) -> str:
         self.queries += 1
         return self._raw
+
+    def qos_inbound(self, user_id: int) -> int:
+        self.up_bytes += self.qos_increment
+        return self.up_bytes
+
+    def qos_outbound(self, user_id: int) -> int:
+        self.down_bytes += self.qos_increment * 2
+        return self.down_bytes
 
     def cpu_usage(self) -> int:
         return 14
@@ -45,9 +56,9 @@ class FakeClient:
         self.closed = True
 
 
-def _factory(raw: str, made: list[FakeClient]):
+def _factory(raw: str, made: list[FakeClient], qos_increment: int = 0):
     def make(settings: Settings) -> FakeClient:
-        client = FakeClient(settings, raw)
+        client = FakeClient(settings, raw, qos_increment)
         made.append(client)
         return client
 
@@ -72,6 +83,14 @@ async def _wait_snapshot(lease, attempts: int = 200) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("No se generó snapshot")
+
+
+async def _wait_latest(lease, attempts: int = 200) -> None:
+    for _ in range(attempts):
+        if lease.snapshot is not None and lease.snapshot.latest is not None:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("No se generó una muestra de tráfico")
 
 
 def test_acquire_polls_and_release() -> None:
@@ -99,6 +118,33 @@ def test_acquire_polls_and_release() -> None:
             assert manager.occupied() == 0
             assert made[0].closed is True
             assert lease.released.is_set()
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_qos_counters_produce_rate_sample() -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    made: list[FakeClient] = []
+
+    async def scenario() -> None:
+        manager = LeaseManager(
+            _settings(poll_interval=0.01),
+            client_factory=_factory(raw, made, qos_increment=5_000_000),
+        )
+        manager.start()
+        try:
+            lease = await manager.acquire("alice", "usuario")
+            await _wait_latest(lease)
+            assert lease.snapshot is not None
+            latest = lease.snapshot.latest
+            assert latest is not None
+            assert latest.up_bytes is not None and latest.up_bytes > 0
+            assert latest.down_bytes is not None and latest.down_bytes > 0
+            assert latest.up_mbps is not None and latest.up_mbps > 0
+            assert latest.down_mbps is not None and latest.down_mbps > 0
+            await manager.release(lease)
         finally:
             await manager.shutdown()
 
@@ -225,7 +271,7 @@ def test_on_change_does_not_republish_same_values() -> None:
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
-            await _wait_snapshot(lease)
+            await _wait_latest(lease)
             version = lease.version
             await asyncio.sleep(0.1)
             assert lease.version == version

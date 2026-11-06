@@ -4,16 +4,18 @@ Referencia persistente del proyecto. Reemplaza la memoria de contexto de la sesi
 todo lo necesario para retomar el trabajo está acá.
 
 Archivos de referencia:
-- `comando-y-saldida.txt` — comando exacto del BRAS, salida real de ejemplo y datos a mostrar/graficar.
+- `comando y salida.txt` — salida real de referencia (local, **no versionar**: contiene PII).
+- `backend/tests/fixtures/` — copias sanitizadas usadas por los tests.
 
 ## 0. Estado de implementación
 
 - [x] Paso 1 — scaffold, config loader, auth JWT + SQLite, `/health`, CLI.
 - [x] Paso 2 — `bras/client.py` (Netmiko persistente), `bras/parser.py`, tests contra salida real.
 - [x] Paso 3 — `LeaseManager` + poller + SSE (gracia, heartbeat, TTL) + endpoints de monitoreo.
-- [x] Paso 4 — pulido de OpenAPI (`/api/docs`, tags, descripciones) + tests de endpoints (29 tests).
+- [x] Paso 4 — pulido de OpenAPI (`/api/docs`, tags, descripciones) + suite de tests.
 - [x] Paso 5 — frontend (HTML/CSS/JS + Chart.js) — código completo, falta prueba visual en navegador.
 - [x] Paso 6 — deploy: `deploy/backend.service` + `deploy/nginx.conf` listos (falta instalarlos en el servidor).
+- [x] Paso 7 — métricas del NAS (CPU/memoria/usuarios) y tasa por contadores QoS (+tests).
 
 > Nota de entorno: el servidor no traía `ensurepip`/`python3-venv`; el `.venv` se creó con
 > `python -m venv --without-pip` y se bootstrapeó pip con `get-pip.py`.
@@ -82,6 +84,7 @@ La salida se divide en secciones: `Basic`, `AAA`, `Dot1X`, `VPN&Policy-route`,
 |---|---|---|
 | MAC | Basic | `User MAC` |
 | IP | Basic | `User IP address` |
+| UserID (interno, no se muestra) | Basic | `User access index` |
 | Inicio de sesión | Basic | `Access start time` |
 | QoS entrada (nombre) | ACL&QoS | `Inbound QOS-profile-name` |
 | QoS salida (nombre) | ACL&QoS | `Outbound QOS-profile-name` |
@@ -90,16 +93,30 @@ La salida se divide en secciones: `Basic`, `AAA`, `Dot1X`, `VPN&Policy-route`,
 
 ### 5.2 Datos a graficar (tiempo real)
 
-| Serie | Sección | Clave | Dirección |
-|---|---|---|---|
-| **Subida (up)** | AAA | `Ipv4 Realtime speed inbound` | inbound |
-| **Bajada (down)** | AAA | `Ipv4 Realtime speed outbound` | outbound |
+La tasa se calcula a partir de **contadores QoS acumulados**, no de `Ipv4 Realtime speed`.
+Ese campo del BRAS refresca cada ~20-30 s y pierde picos; `Flow Statistic` tiene la misma
+cadencia. Los contadores QoS cambian en cada consulta.
 
-**Convención de dirección**: se interpreta **siempre desde el punto de vista del BRAS**, no del
-suscriptor. Por eso `inbound` = subida y `outbound` = bajada. Coherente con QoS del ejemplo:
-`Inbound pir 112640 kbps` ≈ 110 Mbps (subida) y `Outbound cir 215040 kbps` ≈ 210 Mbps (bajada).
+Comandos:
 
-Mapeo configurable: `DIR_UP=inbound`, `DIR_DOWN=outbound`.
+```text
+display access-user username <usuario> verbose nop | no-more   # datos estáticos + User access index
+display qos user-id <UserID> inbound | no-more                  # subida
+display qos user-id <UserID> outbound | no-more                 # bajada
+```
+
+Del segundo/tercer comando se parsea el bloque `[total]`:
+
+```text
+ [total]
+  Pass:                            14,287,506 packets,                 8,941,651,101 bytes
+```
+
+- **Subida (up)**: `inbound`, contador `Pass ... bytes`.
+- **Bajada (down)**: `outbound`, contador `Pass ... bytes`.
+- `outbound` = bajada e `inbound` = subida, desde el punto de vista del BRAS.
+- El `UserID` sale de `User access index` del verbose y se cachea al inicio de la sesión;
+  no se ejecuta un comando adicional para obtenerlo.
 
 ## 6. Parser (`bras/parser.py`)
 
@@ -107,7 +124,8 @@ Mapeo configurable: `DIR_UP=inbound`, `DIR_DOWN=outbound`.
   → `strip()`. Usar `split(':', 1)` es obligatorio porque hay valores con `:` (ej. horas
   `07:11:43`).
 - Valores `-` → `None`.
-- Extraer los campos de §5.1 (estáticos) y §5.2 (tiempo real).
+- Del verbose extraer los campos de §5.1 (estáticos) y `user_id` desde `User access index`.
+- De QoS extraer el contador `Pass ... bytes` del bloque `[total]` para cada dirección.
 
 ### 6.1 Estados según cantidad de bloques (sesiones del mismo usuario)
 
@@ -117,33 +135,38 @@ Mapeo configurable: `DIR_UP=inbound`, `DIR_DOWN=outbound`.
 | 0 | `sin_conexion` | mostrar "sin conexión", **cortar poller** y cerrar SSH |
 | >1 | `error` | "múltiples sesiones", **sin gráfica**; se mantiene polling por si cambia |
 
-### 6.2 Unidades y conversión
+### 6.2 Cálculo de tasa
 
-El BRAS informa la velocidad en `kbyte/min` (aparente). Se muestra en **Mbps**:
+`monitor/rates.py` guarda la última muestra `(bytes, timestamp)` por dirección y calcula:
 
 ```
-mbps = valor_kbyte * KBYTE_UNIT_BYTES * 8 / KBYTE_TIME_BASE / 1_000_000
+mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000)
 ```
 
-- `KBYTE_UNIT_BYTES` = 1024 (default, configurable).
-- `KBYTE_TIME_BASE` = 60 (default, configurable; usar 1 si en realidad es por segundo).
-- Se guarda también el **valor crudo** (`raw`) para tooltip/diagnóstico.
-- Referencia: `1 kbyte/min ≈ 0.0001365 Mbps`; `200 Mbps ≈ 1_464_843 kbyte/min`.
-- Ver §16 (calibración).
+- La primera muestra de una sesión es solo baseline: `latest = None` y la gráfica espera el
+  siguiente ciclo.
+- Se usa `time.monotonic()` y el tiempo real transcurrido, no el `POLL_INTERVAL` nominal.
+- El baseline se conserva si una consulta QoS falla o devuelve `None`.
+- Se reinicia el baseline si el contador baja (reset del BRAS) o cambia la sesión.
+- `up_bytes`/`down_bytes` se conservan en `LatestSample` para diagnóstico y tooltip.
+- `inbound` = subida; `outbound` = bajada.
 
-### 6.3 Cadencia real del dato
+### 6.3 Cadencia y emisión
 
-El contador `Ipv4 Realtime speed` del BRAS **refresca cada ~20-30 s**, no en cada consulta.
-Por eso:
-- Se consulta cada `POLL_INTERVAL=5s` (barato con SSH persistente).
-- **SSE emite solo cuando el valor cambia** (evita mandar el mismo dato).
-- La gráfica agrega punto al recibir snapshot nuevo → tramos planos entre refrescos.
-- `SAMPLE_MODE = on_change | every_poll` (configurable) para ajustar sobre la marcha.
+- Los contadores QoS se consultan cada `POLL_INTERVAL=5s` con la misma conexión SSH.
+- El verbose se sigue consultando cada ciclo para mantener actualizados MAC/IP/inicio/QoS.
+- **SSE emite solo cuando cambia** la tasa calculada o alguna métrica del NAS/estática.
+- `SAMPLE_MODE = on_change | every_poll` (configurable). `on_change` compara `up_mbps` y
+  `down_mbps`; `every_poll` publica cada ciclo.
+- No hay fallback a `Ipv4 Realtime speed`: si QoS no responde, no se inventa una tasa.
 
 ### 6.4 Tests
 
-`tests/test_parser.py` contra `tests/fixtures/salida.txt` (copia de la salida real de
-`comando-y-saldida.txt`). Incluye casos: 1 bloque, 0 bloques, >1 bloques.
+- `tests/test_parser.py`: verbose (1/0/>1 bloques, campos estáticos, `user_id`) y QoS
+  (`inbound`/`outbound`, `[total]`, formato CAR sin clases, salida inválida).
+- `tests/test_rates.py`: baseline inicial, delta, contador en cero, reset, cambio de sesión y
+  muestra faltante.
+- `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados.
 
 ### 6.5 Métricas del NAS
 
@@ -176,8 +199,8 @@ class LatestSample(BaseModel):
     ts: datetime
     up_mbps: float | None       # inbound
     down_mbps: float | None     # outbound
-    in_raw: float | None
-    out_raw: float | None
+    up_bytes: int | None        # contador QoS inbound
+    down_bytes: int | None      # contador QoS outbound
 
 class HostMetrics(BaseModel):
     cpu_percent: int | None
@@ -335,6 +358,8 @@ Claves:
 | `CPU_COMMAND` | `display cpu-usage \| no-more` |
 | `MEMORY_COMMAND` | `display memory-usage \| no-more` |
 | `USERS_COMMAND` | `display access-user summary` |
+| `QOS_INBOUND_COMMAND` | `display qos user-id {user_id} inbound \| no-more` |
+| `QOS_OUTBOUND_COMMAND` | `display qos user-id {user_id} outbound \| no-more` |
 | `USERNAME_REGEX` | charset seguro del abonado |
 | `JWT_SECRET`, `JWT_ALG`, `ACCESS_TTL`, `REFRESH_TTL` | auth |
 | `DATABASE_PATH` | SQLite de usuarios (default `backend/instance/bras_monitor.db`) |
@@ -343,9 +368,6 @@ Claves:
 | `SESSION_TTL` | `600` |
 | `DISCONNECT_GRACE` | `10` |
 | `HEARTBEAT_TTL` | `45` |
-| `KBYTE_UNIT_BYTES` | `1024` |
-| `KBYTE_TIME_BASE` | `60` |
-| `DIR_UP`, `DIR_DOWN` | `inbound`, `outbound` |
 | `SAMPLE_MODE` | `on_change` |
 | `ONLINE_USERS_URL` | webservice dialup (default `http://10.10.10.2/dialup2/webserv/`) |
 | `ONLINE_USERS_NAS_IP` | IP del NAS a consultar (default `200.49.120.10`) |
@@ -378,12 +400,12 @@ backend/
     schemas.py              # Pydantic
     auth/{jwt.py,users.py,router.py}
     bras/{client.py,parser.py}
-    monitor/{lease.py,poller.py,events.py,router.py}
+    monitor/{lease.py,poller.py,rates.py,events.py,router.py}
     online_users.py         # proxy al webservice de usuarios online
     cli.py                  # bootstrap / crear usuarios
   instance/config.py        # SECRETOS, gitignored
   config.example.py
-  tests/{test_parser.py,test_host_metrics.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/}
+  tests/{test_parser.py,test_rates.py,test_host_metrics.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/}
   requirements.txt
 frontend/
   index.html monitor.html
@@ -398,11 +420,13 @@ deploy/{backend.service,nginx.conf}
 
 - **`bras/client.py`**: conexión Netmiko **persistente** (reusar canal), `terminal length 0` /
   paginación off, `send_command`, timeouts, reconexión acotada.
-- **`bras/parser.py`**: salida → `MonitorSnapshot` (§6).
+- **`bras/parser.py`**: verbose → datos estáticos + `user_id`; QoS → bytes acumulados (§6).
+- **`monitor/rates.py`**: baseline y cálculo de Mbps por delta de contadores QoS.
 - **`monitor/lease.py`**: `LeaseManager` con slots, `acquire/release`, timers, gracia, heartbeat.
 - **`monitor/poller.py`**: task asyncio por slot; Netmiko bloqueante en threadpool
   (`anyio.to_thread.run_sync`); cadencia `max(POLL_INTERVAL, dur_comando)`; snapshot con `version`.
-  En el mismo ciclo consulta CPU/memoria/usuarios del NAS y publica si cambió cualquiera.
+  Cachea el `user_id` al inicio, consulta QoS `inbound`/`outbound`, calcula tasas y en el mismo
+  ciclo consulta CPU/memoria/usuarios del NAS. Publica si cambió la tasa o alguna métrica.
 - **`monitor/events.py`**: generator SSE, keepalive, detección de corte (`GeneratorExit`/
   `CancelledError`), emisión solo en cambio.
 - **`online_users.py`**: proxy autenticado al webservice de dialup (`usuarios_online`),
@@ -533,12 +557,13 @@ sudo systemctl restart monitor-pppoe                                            
 
 ## 16. Calibraciones abiertas (ajustar sobre la marcha)
 
-1. **Base de tiempo**: confirmar si `kbyte/min` es realmente por minuto o por segundo. Validar con
-   una prueba de velocidad conocida y ajustar `KBYTE_TIME_BASE` (60 o 1) para que el Mbps mostrado
-   coincida. El usuario observó que el valor cambia cada ~20-30 s.
-2. **`SAMPLE_MODE`**: decidir si graficar `on_change` (más fiel al refresco del BRAS) o
+1. **Contadores QoS**: verificar en producción que `[total] Pass bytes` crece de forma monótona
+   y que un reset del BRAS no genera un pico (el tracker reinicia el baseline).
+2. **UserID cacheado**: si el BRAS reutiliza el índice durante la sesión, las métricas quedarían
+   asociadas a otra sesión. El usuario aceptó el riesgo por ser monitoreo ocasional/diagnóstico.
+3. **`SAMPLE_MODE`**: decidir si graficar `on_change` (solo cambios de tasa) o
    `every_poll` (paso fijo de 5 s). Default `on_change`.
-3. **`MAX_SESIONES`**: 1 hoy; evaluar 2-3 si se necesita monitoreo concurrente (Caso A).
+4. **`MAX_SESIONES`**: 1 hoy; evaluar 2-3 si se necesita monitoreo concurrente (Caso A).
 
 ## 17. Orden de implementación
 
@@ -559,5 +584,9 @@ sudo systemctl restart monitor-pppoe                                            
 - Actualización gráfica cada **5 s** (antes 3 s), emitiendo solo en cambio.
 - Velocidades en **Mbps**; dirección desde el punto de vista del BRAS (`inbound`=subida,
   `outbound`=bajada).
+- La tasa se obtiene de **contadores QoS** (`[total] Pass bytes`) por delta de 5 s, no de
+  `Ipv4 Realtime speed` ni `Flow Statistic` (refrescan cada ~20-30 s y pierden picos).
+- **Sin fallback**: si QoS no responde, no se publica tasa. El verbose se mantiene por ciclo
+  para datos estáticos; el `UserID` se cachea una sola vez al inicio.
 - Multi-sesión → error; inexistente → `sin_conexion` + cortar poller.
 - Secretos en `instance/config.py` gitignored (opción A).

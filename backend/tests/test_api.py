@@ -43,10 +43,8 @@ class FakeLease:
                 ts=datetime.now(timezone.utc),
                 up_mbps=12.5,
                 down_mbps=88.25,
-                in_raw=93750.0,
-                out_raw=661875.0,
-                in_unit="kbyte/min",
-                out_unit="kbyte/min",
+                up_bytes=8_941_651_101,
+                down_bytes=43_149_452_521,
             ),
         )
 
@@ -228,6 +226,8 @@ def test_snapshot_returns_typed_payload(monitor_client) -> None:
     assert body["static"]["start_time"] == "2026-11-03 10:00:00"
     assert body["latest"]["up_mbps"] == 12.5
     assert body["latest"]["down_mbps"] == 88.25
+    assert body["latest"]["up_bytes"] == 8_941_651_101
+    assert body["latest"]["down_bytes"] == 43_149_452_521
 
 
 def test_snapshot_requires_matching_lease_owner(monitor_client) -> None:

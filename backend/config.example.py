@@ -22,6 +22,9 @@ BRAS_CONN_TIMEOUT = 15
 BRAS_READ_TIMEOUT = 30
 
 COMMAND_TEMPLATE = "display access-user username {username} verbose nop | no-more"
+# Contadores QoS para calcular la tasa real (inbound = subida, outbound = bajada)
+QOS_INBOUND_COMMAND = "display qos user-id {user_id} inbound | no-more"
+QOS_OUTBOUND_COMMAND = "display qos user-id {user_id} outbound | no-more"
 # Métricas del NAS que se muestran junto al abonado
 CPU_COMMAND = "display cpu-usage | no-more"
 MEMORY_COMMAND = "display memory-usage | no-more"
@@ -47,11 +50,7 @@ SESSION_TTL = 600
 DISCONNECT_GRACE = 10
 HEARTBEAT_TTL = 45
 
-# --- Unidades / mapeo de dirección -------------------------------------
-KBYTE_UNIT_BYTES = 1024
-KBYTE_TIME_BASE = 60
-DIR_UP = "inbound"                # inbound = subida (punto de vista del BRAS)
-DIR_DOWN = "outbound"             # outbound = bajada
+# --- Muestreo -----------------------------------------------------------
 SAMPLE_MODE = "on_change"         # on_change | every_poll
 
 # --- Búsqueda de usuarios online (autocompletado) -----------------------

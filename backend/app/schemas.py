@@ -22,10 +22,8 @@ class LatestSample(BaseModel):
     ts: datetime
     up_mbps: Optional[float] = None      # inbound (punto de vista del BRAS)
     down_mbps: Optional[float] = None    # outbound
-    in_raw: Optional[float] = None
-    out_raw: Optional[float] = None
-    in_unit: Optional[str] = None
-    out_unit: Optional[str] = None
+    up_bytes: Optional[int] = None       # contador acumulado QoS
+    down_bytes: Optional[int] = None
 
 
 class HostMetrics(BaseModel):
@@ -40,6 +38,7 @@ class ParseResult(BaseModel):
     static: Optional[StaticInfo] = None
     latest: Optional[LatestSample] = None
     host: Optional[HostMetrics] = None
+    user_id: Optional[int] = None
 
 
 class MonitorSnapshot(BaseModel):

@@ -1,8 +1,9 @@
-"""Parseo de la salida de `display access-user username <user> verbose`.
+"""Parseo de las salidas del BRAS.
 
-Se trabaja por bloques separados por líneas de guiones (una sesión = un bloque).
-Los campos objetivo son únicos en la salida, por lo que se aplana cada bloque a
-un diccionario `clave -> valor` en minúsculas.
+- `display access-user username <user> verbose`: datos estáticos y UserID.
+- `display qos user-id <id> inbound|outbound`: contadores acumulados de bytes.
+
+La tasa se calcula en `monitor/rates.py` a partir de esos contadores.
 """
 
 from __future__ import annotations
@@ -11,10 +12,9 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from ..schemas import LatestSample, MonitorSnapshot, ParseResult, StaticInfo
+from ..schemas import MonitorSnapshot, ParseResult, StaticInfo
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
-_SPEED_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(.*)")
 
 
 def _is_separator(line: str) -> bool:
@@ -80,40 +80,12 @@ def _first_int(fields: dict[str, str], key: str) -> Optional[int]:
     return int(float(match.group())) if match else None
 
 
-def _parse_speed(value: Optional[str]) -> tuple[Optional[float], Optional[str]]:
-    if value is None:
-        return None, None
-    match = _SPEED_RE.search(value.strip())
-    if not match:
-        return None, None
-    number = float(match.group(1))
-    unit = match.group(2).strip() or None
-    return number, unit
-
-
-def kbyte_to_mbps(
-    value: Optional[float], *, unit_bytes: int = 1024, time_base: int = 60
-) -> Optional[float]:
-    """Convierte un valor en kbyte/<time_base> a Mbps."""
-    if value is None:
-        return None
-    return value * unit_bytes * 8 / time_base / 1_000_000
-
-
-def parse_access_user(
-    raw: str,
-    *,
-    up_field: str = "inbound",
-    down_field: str = "outbound",
-    unit_bytes: int = 1024,
-    time_base: int = 60,
-    now: Optional[datetime] = None,
-) -> ParseResult:
+def parse_access_user(raw: str) -> ParseResult:
     """Convierte la salida cruda del BRAS en un `ParseResult`.
 
     - 0 bloques  -> `sin_conexion` (usuario inexistente / sin sesión).
     - >1 bloques -> `error` (múltiples sesiones para el mismo usuario).
-    - 1 bloque   -> `ok` con datos estáticos y última muestra.
+    - 1 bloque   -> `ok` con datos estáticos y `user_id`.
     """
     blocks = _split_blocks(raw)
     if not blocks:
@@ -136,20 +108,11 @@ def parse_access_user(
         out_cir_kbps=_first_int(fields, "outbound cir"),
     )
 
-    in_raw, in_unit = _parse_speed(fields.get(f"ipv4 realtime speed {up_field}"))
-    out_raw, out_unit = _parse_speed(fields.get(f"ipv4 realtime speed {down_field}"))
-
-    latest = LatestSample(
-        ts=now or datetime.now(timezone.utc),
-        up_mbps=kbyte_to_mbps(in_raw, unit_bytes=unit_bytes, time_base=time_base),
-        down_mbps=kbyte_to_mbps(out_raw, unit_bytes=unit_bytes, time_base=time_base),
-        in_raw=in_raw,
-        out_raw=out_raw,
-        in_unit=in_unit,
-        out_unit=out_unit,
+    return ParseResult(
+        state="ok",
+        static=static,
+        user_id=_first_int(fields, "user access index"),
     )
-
-    return ParseResult(state="ok", static=static, latest=latest)
 
 
 def to_snapshot(
@@ -204,3 +167,35 @@ def parse_access_user_summary(raw: str) -> Optional[int]:
     """Extrae `Total users : N` de `display access-user summary`."""
     match = _TOTAL_USERS_RE.search(raw)
     return int(match.group(1)) if match else None
+
+
+# --- Contadores QoS por usuario -----------------------------------------
+
+_QOS_CLASS_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$", re.MULTILINE)
+_QOS_PASS_RE = re.compile(
+    r"^\s*Pass:\s*[\d,]+\s+packets,\s*([\d,]+)\s+bytes", re.MULTILINE
+)
+
+
+def _pass_bytes(block: str) -> Optional[int]:
+    match = _QOS_PASS_RE.search(block)
+    if match is None:
+        return None
+    return int(match.group(1).replace(",", ""))
+
+
+def parse_qos_pass_bytes(raw: str) -> Optional[int]:
+    """Extrae los bytes acumulados del bloque `[total]` de `display qos user-id`.
+
+    Si el equipo no muestra clases y devuelve directamente las estadísticas CAR,
+    se usa la primera línea `Pass:` del bloque.
+    """
+    classes = list(_QOS_CLASS_RE.finditer(raw))
+    for index, match in enumerate(classes):
+        if match.group(1).strip().lower() != "total":
+            continue
+        end = classes[index + 1].start() if index + 1 < len(classes) else len(raw)
+        return _pass_bytes(raw[match.end() : end])
+    # Sin bloques de clase el equipo puede devolver directamente las
+    # estadísticas CAR. Si hay clases pero falta `[total]`, no se adivina.
+    return None if classes else _pass_bytes(raw)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.bras.client import BrasClient
 from app.config import Settings
 
@@ -45,3 +47,27 @@ def test_connect_uses_supported_netmiko_timeout_kwarg(monkeypatch) -> None:
     assert captured["read_timeout_override"] == 42
     assert captured["conn_timeout"] == 7
     assert client.query("usuario") == ""
+
+
+def test_qos_commands_use_cached_user_id(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
+    )
+    client = BrasClient(Settings()).connect()
+
+    assert client.qos_inbound(10001) is None
+    assert client.qos_outbound(10001) is None
+    assert client._conn.commands[-2:] == [
+        "display qos user-id 10001 inbound | no-more",
+        "display qos user-id 10001 outbound | no-more",
+    ]
+
+
+def test_qos_rejects_invalid_user_id(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
+    )
+    client = BrasClient(Settings()).connect()
+
+    with pytest.raises(ValueError):
+        client.qos_inbound(-1)  # type: ignore[arg-type]
