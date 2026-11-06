@@ -10,17 +10,21 @@ import pytest
 from app.config import Settings
 from app.monitor.events import event_stream
 from app.monitor.lease import LeaseBusy, LeaseManager
+from app.monitor.poller import QOS_MISSING_MESSAGE
 
 FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
 
 
 class FakeClient:
-    def __init__(self, settings, raw, qos_increment: int = 0) -> None:
+    def __init__(
+        self, settings, raw, qos_increment: int = 0, qos_missing: bool = False
+    ) -> None:
         self._raw = raw
         self.connected = False
         self.closed = False
         self.queries = 0
         self.qos_increment = qos_increment
+        self.qos_missing = qos_missing
         self.up_bytes = 0
         self.down_bytes = 0
 
@@ -35,11 +39,15 @@ class FakeClient:
         self.queries += 1
         return self._raw
 
-    def qos_inbound(self, user_id: int) -> int:
+    def qos_inbound(self, user_id: int) -> int | None:
+        if self.qos_missing:
+            return None
         self.up_bytes += self.qos_increment
         return self.up_bytes
 
-    def qos_outbound(self, user_id: int) -> int:
+    def qos_outbound(self, user_id: int) -> int | None:
+        if self.qos_missing:
+            return None
         self.down_bytes += self.qos_increment * 2
         return self.down_bytes
 
@@ -56,9 +64,14 @@ class FakeClient:
         self.closed = True
 
 
-def _factory(raw: str, made: list[FakeClient], qos_increment: int = 0):
+def _factory(
+    raw: str,
+    made: list[FakeClient],
+    qos_increment: int = 0,
+    qos_missing: bool = False,
+):
     def make(settings: Settings) -> FakeClient:
-        client = FakeClient(settings, raw, qos_increment)
+        client = FakeClient(settings, raw, qos_increment, qos_missing)
         made.append(client)
         return client
 
@@ -91,6 +104,14 @@ async def _wait_latest(lease, attempts: int = 200) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("No se generó una muestra de tráfico")
+
+
+async def _wait_released(lease, attempts: int = 200) -> None:
+    for _ in range(attempts):
+        if lease.released.is_set() and lease.state == "released":
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("No se liberó el lease")
 
 
 def test_acquire_polls_and_release() -> None:
@@ -145,6 +166,31 @@ def test_qos_counters_produce_rate_sample() -> None:
             assert latest.up_mbps is not None and latest.up_mbps > 0
             assert latest.down_mbps is not None and latest.down_mbps > 0
             await manager.release(lease)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_missing_qos_closes_lease_with_backend_message() -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    made: list[FakeClient] = []
+
+    async def scenario() -> None:
+        manager = LeaseManager(
+            _settings(poll_interval=0.01),
+            client_factory=_factory(raw, made, qos_missing=True),
+        )
+        manager.start()
+        try:
+            lease = await manager.acquire("alice", "usuario")
+            await _wait_released(lease)
+
+            assert lease.snapshot is not None
+            assert lease.snapshot.state == "error"
+            assert lease.snapshot.error_msg == QOS_MISSING_MESSAGE
+            assert manager.get(lease.id) is None
+            assert made[0].closed is True
         finally:
             await manager.shutdown()
 

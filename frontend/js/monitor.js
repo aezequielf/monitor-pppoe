@@ -371,6 +371,8 @@ function closedMessage(reason) {
       return "El servidor cerró la sesión.";
     case "ssh_error":
       return "Se perdió la conexión SSH con el BRAS.";
+    case "qos_missing":
+      return "El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo.";
     default:
       return "La sesión de monitoreo finalizó.";
   }

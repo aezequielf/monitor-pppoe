@@ -117,6 +117,9 @@ Del segundo/tercer comando se parsea el bloque `[total]`:
 - `outbound` = bajada e `inbound` = subida, desde el punto de vista del BRAS.
 - El `UserID` sale de `User access index` del verbose y se cachea al inicio de la sesión;
   no se ejecuta un comando adicional para obtenerlo.
+- Si cualquiera de los comandos QoS no devuelve una salida parseable, el backend publica
+  `El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo.`, libera el
+  lease y cierra el SSE. El frontend muestra ese mensaje.
 
 ## 6. Parser (`bras/parser.py`)
 
@@ -166,7 +169,8 @@ mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000
   (`inbound`/`outbound`, `[total]`, formato CAR sin clases, salida inválida).
 - `tests/test_rates.py`: baseline inicial, delta, contador en cero, reset, cambio de sesión y
   muestra faltante.
-- `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados.
+- `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados y el caso
+  sin perfil QoS (mensaje de backend + liberación del lease).
 
 ### 6.5 Métricas del NAS
 
@@ -319,7 +323,8 @@ Estados de pantalla:
 - `ocupado` — `409`: "En uso por X, mm:ss" + **Reintentar** (auto-retry cada 5 s).
 - `activo` — gráfica + cuenta regresiva 10:00 + botón **Cerrar conexión**.
 - `sin_conexion` — usuario inexistente.
-- `error` — múltiples sesiones.
+- `error` — múltiples sesiones o ausencia de perfil QoS; en este último caso el backend
+  libera el lease y cierra el canal mostrando el mensaje correspondiente.
 - `expirado` — TTL alcanzado.
 
 Gráfica: Chart.js 4 local (`frontend/vendor/chart.umd.min.js`), dos datasets (subida/bajada),
@@ -588,5 +593,7 @@ sudo systemctl restart monitor-pppoe                                            
   `Ipv4 Realtime speed` ni `Flow Statistic` (refrescan cada ~20-30 s y pierden picos).
 - **Sin fallback**: si QoS no responde, no se publica tasa. El verbose se mantiene por ciclo
   para datos estáticos; el `UserID` se cachea una sola vez al inicio.
+- Sin perfil QoS (`inbound`/`outbound` sin bytes parseables) → estado `error`, mensaje del
+  backend, liberación del lease y cierre del SSE; el frontend vuelve a `idle`.
 - Multi-sesión → error; inexistente → `sin_conexion` + cortar poller.
 - Secretos en `instance/config.py` gitignored (opción A).

@@ -13,6 +13,10 @@ from ..schemas import HostMetrics, LatestSample, ParseResult
 from .lease import Lease, LeaseManager
 from .rates import RateTracker
 
+QOS_MISSING_MESSAGE = (
+    "El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo."
+)
+
 
 def _has_changed(previous, result: ParseResult) -> bool:
     if previous is None:
@@ -50,10 +54,15 @@ def _query_bundle(client, username: str) -> tuple[str, HostMetrics]:
 
 
 def _query_qos(client, user_id: int) -> tuple[int | None, float, int | None, float]:
-    """Consulta los contadores QoS y registra el instante de cada muestra."""
-    up_bytes = _optional(lambda: client.qos_inbound(user_id))
+    """Consulta los contadores QoS y registra el instante de cada muestra.
+
+    Un `None` significa que el comando no devolvió una salida parseable: el
+    usuario no tiene QoS asignado para esa dirección. Los errores de conexión
+    se propagan para que el poller los trate como fallo SSH.
+    """
+    up_bytes = client.qos_inbound(user_id)
     up_ts = time.monotonic()
-    down_bytes = _optional(lambda: client.qos_outbound(user_id))
+    down_bytes = client.qos_outbound(user_id)
     down_ts = time.monotonic()
     return up_bytes, up_ts, down_bytes, down_ts
 
@@ -84,9 +93,24 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
                 user_id = result.user_id
 
             if user_id is not None and result.state == "ok":
-                up_bytes, up_ts, down_bytes, down_ts = await anyio.to_thread.run_sync(
-                    _query_qos, client, user_id
-                )
+                try:
+                    up_bytes, up_ts, down_bytes, down_ts = (
+                        await anyio.to_thread.run_sync(_query_qos, client, user_id)
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    manager.publish_error(lease, f"Error de SSH: {exc}")
+                    asyncio.create_task(manager.release(lease, reason="ssh_error"))
+                    return
+
+                if up_bytes is None or down_bytes is None:
+                    manager.publish_error(lease, QOS_MISSING_MESSAGE)
+                    asyncio.create_task(
+                        manager.release(lease, reason="qos_missing")
+                    )
+                    return
+
                 start_time = result.static.start_time if result.static else None
                 up_mbps, down_mbps = rates.update(
                     up_bytes=up_bytes,
