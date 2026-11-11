@@ -192,6 +192,13 @@ function formatBytes(value) {
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "—";
   const total = Math.floor(seconds);
+  if (total >= 86400) {
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const rest = total % 60;
+    return `${days} ${days === 1 ? "día" : "días"} ${hours} h ${minutes} min ${rest} s`;
+  }
   if (total < 60) return `${total} s`;
   const minutes = Math.floor(total / 60);
   const rest = total % 60;
