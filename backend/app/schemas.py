@@ -53,6 +53,35 @@ class MonitorSnapshot(BaseModel):
     host: Optional[HostMetrics] = None
 
 
+class HistoryConnection(BaseModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    upload_bytes: Optional[int] = None
+    download_bytes: Optional[int] = None
+    nas: Optional[str] = None
+    reason: Optional[str] = None
+    mac: Optional[str] = None
+    ip: Optional[str] = None
+
+
+class HistoryDisconnection(BaseModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    reason: Optional[str] = None
+    mac: Optional[str] = None
+    ip: Optional[str] = None
+    interface: Optional[str] = None
+
+
+class MonitorHistory(BaseModel):
+    connections: list[HistoryConnection] = Field(default_factory=list)
+    disconnections: list[HistoryDisconnection] = Field(default_factory=list)
+    connections_error: Optional[str] = None
+    disconnections_error: Optional[str] = None
+
+
 # --- Auth ---------------------------------------------------------------
 
 

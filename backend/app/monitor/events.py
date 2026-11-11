@@ -8,7 +8,7 @@ import json
 import time
 from typing import AsyncIterator
 
-from ..schemas import MonitorSnapshot
+from ..schemas import MonitorHistory, MonitorSnapshot
 from .lease import Lease
 
 KEEPALIVE_SECONDS = 15.0
@@ -16,6 +16,10 @@ KEEPALIVE_SECONDS = 15.0
 
 def _snapshot_frame(snapshot: MonitorSnapshot) -> str:
     return f"event: snapshot\ndata: {snapshot.model_dump_json()}\n\n"
+
+
+def _history_frame(history: MonitorHistory) -> str:
+    return f"event: history\ndata: {history.model_dump_json()}\n\n"
 
 
 def _released_frame(reason: str | None) -> str:
@@ -50,6 +54,8 @@ async def event_stream(lease: Lease) -> AsyncIterator[str]:
             yield _snapshot_frame(lease.snapshot)
         else:
             yield _ping_frame()
+        if lease.history is not None:
+            yield _history_frame(lease.history)
 
         while True:
             if lease.released.is_set() and queue.empty():
@@ -65,6 +71,8 @@ async def event_stream(lease: Lease) -> AsyncIterator[str]:
 
             if message.get("event") == "snapshot":
                 yield _snapshot_frame(message["snapshot"])
+            elif message.get("event") == "history":
+                yield _history_frame(message["history"])
             elif message.get("event") == "released":
                 yield _released_frame(message.get("reason"))
                 return

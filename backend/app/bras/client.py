@@ -100,6 +100,16 @@ class BrasClient:
     def qos_outbound(self, user_id: int) -> int | None:
         return self._qos_pass_bytes(self._settings.qos_outbound_command, user_id)
 
+    def offline_history(self, username: str, count: int) -> str:
+        """Consulta las últimas desconexiones registradas por el BRAS."""
+        self.validate_username(username)
+        if not isinstance(count, int) or count < 1:
+            raise ValueError("Cantidad de desconexiones inválida")
+        command = self._settings.offline_history_command.format(
+            username=username, count=count
+        )
+        return self._send(command)
+
     def cpu_usage(self) -> int | None:
         return parse_cpu_usage(self._send(self._settings.cpu_command))
 

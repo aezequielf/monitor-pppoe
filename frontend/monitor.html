@@ -174,8 +174,82 @@
             </dl>
           </aside>
         </div>
+
+        <div class="history-actions">
+          <button class="btn btn--ghost" id="history-btn" type="button" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            Histórico
+          </button>
+        </div>
       </section>
     </main>
+
+    <dialog class="modal" id="history-modal" aria-labelledby="history-title">
+      <div class="modal__panel">
+        <header class="modal__head">
+          <div>
+            <h2 id="history-title">Histórico reciente</h2>
+            <p class="modal__sub" id="history-subtitle">Últimas conexiones y desconexiones</p>
+          </div>
+          <button class="modal__close" id="history-close" type="button" aria-label="Cerrar histórico">×</button>
+        </header>
+
+        <div class="modal__body">
+          <section class="history-block" id="history-api-block" hidden>
+            <div class="history-block__head">
+              <h3>Últimas conexiones</h3>
+              <span class="hint">API Radius</span>
+            </div>
+            <p class="history-note" id="history-api-error" hidden></p>
+            <p class="history-empty" id="history-api-empty" hidden>Sin conexiones registradas.</p>
+            <div class="table-wrap">
+              <table class="history-table">
+                <thead>
+                  <tr>
+                    <th>Inicio</th>
+                    <th>Fin</th>
+                    <th>Duración</th>
+                    <th>Subida</th>
+                    <th>Bajada</th>
+                    <th>IP</th>
+                    <th>MAC</th>
+                    <th>Causa</th>
+                  </tr>
+                </thead>
+                <tbody id="history-api-rows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="history-block" id="history-bras-block" hidden>
+            <div class="history-block__head">
+              <h3>Últimas desconexiones</h3>
+              <span class="hint">BRAS</span>
+            </div>
+            <p class="history-note" id="history-bras-error" hidden></p>
+            <p class="history-empty" id="history-bras-empty" hidden>Sin desconexiones registradas.</p>
+            <div class="table-wrap">
+              <table class="history-table">
+                <thead>
+                  <tr>
+                    <th>Inicio</th>
+                    <th>Fin</th>
+                    <th>Duración</th>
+                    <th>IP</th>
+                    <th>MAC</th>
+                    <th>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody id="history-bras-rows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </dialog>
 
     <script src="vendor/chart.umd.min.js"></script>
     <script type="module" src="js/monitor.js"></script>

@@ -7,6 +7,7 @@ import pytest
 
 from app.bras.parser import (
     parse_access_user,
+    parse_offline_records,
     parse_qos_pass_bytes,
     to_snapshot,
 )
@@ -16,6 +17,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 RAW = FIXTURES / "salida.txt"
 QOS_OUT = FIXTURES / "qos_outbound.txt"
 QOS_IN = FIXTURES / "qos_inbound.txt"
+OFFLINE = FIXTURES / "offline_history.txt"
 
 
 @pytest.fixture
@@ -75,6 +77,25 @@ def test_parse_qos_without_total_does_not_use_partial_class() -> None:
   Pass:                                1,000 packets,                      1,000 bytes
 """
     assert parse_qos_pass_bytes(raw) is None
+
+
+def test_parse_offline_records() -> None:
+    records = parse_offline_records(OFFLINE.read_text(encoding="utf-8"))
+
+    assert len(records) == 5
+    assert records[0].start == "2026-11-06 09:37:29"
+    assert records[0].end == "2026-11-06 14:40:09"
+    assert records[0].duration_seconds == 18_160
+    assert records[0].reason == "PPP with echo fail"
+    assert records[0].mac == "aabb-ccdd-eeff"
+    assert records[0].ip == "203.0.113.10"
+    assert records[0].interface == "GigabitEthernet0/1/0"
+    assert records[-1].reason == "PPP with echo fail"
+
+
+def test_parse_offline_records_invalid_output() -> None:
+    assert parse_offline_records("") == []
+    assert parse_offline_records("Error: The user does not exist.") == []
 
 
 def test_sin_conexion_when_no_block() -> None:

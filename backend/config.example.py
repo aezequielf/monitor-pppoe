@@ -25,6 +25,11 @@ COMMAND_TEMPLATE = "display access-user username {username} verbose nop | no-mor
 # Contadores QoS para calcular la tasa real (inbound = subida, outbound = bajada)
 QOS_INBOUND_COMMAND = "display qos user-id {user_id} inbound | no-more"
 QOS_OUTBOUND_COMMAND = "display qos user-id {user_id} outbound | no-more"
+# Últimas desconexiones del usuario (se consulta una vez al iniciar el lease)
+OFFLINE_HISTORY_COMMAND = (
+    "display aaa offline-record username {username} coun {count} | no-more"
+)
+HISTORY_LIMIT = 5
 # Métricas del NAS que se muestran junto al abonado
 CPU_COMMAND = "display cpu-usage | no-more"
 MEMORY_COMMAND = "display memory-usage | no-more"

@@ -1,0 +1,80 @@
+  --------------------------------------------
+  User name          : usuario_demo
+  Domain name        : demo_domain
+  User MAC           : aabb-ccdd-eeff
+  User access type   : PPPoE
+  User access interface: GigabitEthernet0/1/0
+  User access PeVlan/CeVlan    :  -/-
+  User IP address    : 203.0.113.10
+  User ID            : 10001
+  User authen state  : Authened
+  User acct state    : AcctStopWait
+  User author state  : AuthorIdle
+  User login time    : 2026-11-06 09:37:29
+  User offline time  : 2026-11-06 14:40:09
+  User offline reason: PPP with echo fail
+  -------------------------------------------- 
+  --------------------------------------------
+  User name          : usuario_demo
+  Domain name        : demo_domain
+  User MAC           : aabb-ccdd-eeff
+  User access type   : PPPoE
+  User access interface: GigabitEthernet0/1/0
+  User access PeVlan/CeVlan    :  -/-
+  User IP address    : 203.0.113.11
+  User ID            : 10002
+  User authen state  : Authened
+  User acct state    : AcctStopWait
+  User author state  : AuthorIdle
+  User login time    : 2026-11-06 07:01:05
+  User offline time  : 2026-11-06 09:37:20
+  User offline reason: AAA cut command
+  -------------------------------------------- 
+  --------------------------------------------
+  User name          : usuario_demo
+  Domain name        : demo_domain
+  User MAC           : aabb-ccdd-eeff
+  User access type   : PPPoE
+  User access interface: GigabitEthernet0/1/0
+  User access PeVlan/CeVlan    :  -/-
+  User IP address    : 203.0.113.12
+  User ID            : 10003
+  User authen state  : Authened
+  User acct state    : AcctStopWait
+  User author state  : AuthorIdle
+  User login time    : 2026-11-05 06:55:07
+  User offline time  : 2026-11-05 14:30:48
+  User offline reason: PPP with echo fail
+  -------------------------------------------- 
+  --------------------------------------------
+  User name          : usuario_demo
+  Domain name        : demo_domain
+  User MAC           : aabb-ccdd-eeff
+  User access type   : PPPoE
+  User access interface: GigabitEthernet0/1/0
+  User access PeVlan/CeVlan    :  -/-
+  User IP address    : 203.0.113.13
+  User ID            : 10004
+  User authen state  : Authened
+  User acct state    : AcctStopWait
+  User author state  : AuthorIdle
+  User login time    : 2026-11-04 07:04:17
+  User offline time  : 2026-11-04 14:35:39
+  User offline reason: Receive PADT packet from user.
+  -------------------------------------------- 
+  --------------------------------------------
+  User name          : usuario_demo
+  Domain name        : demo_domain
+  User MAC           : aabb-ccdd-eeff
+  User access type   : PPPoE
+  User access interface: GigabitEthernet0/1/0
+  User access PeVlan/CeVlan    :  -/-
+  User IP address    : 203.0.113.14
+  User ID            : 10005
+  User authen state  : Authened
+  User acct state    : AcctStopWait
+  User author state  : AuthorIdle
+  User login time    : 2026-11-03 08:00:14
+  User offline time  : 2026-11-03 14:31:34
+  User offline reason: PPP with echo fail
+  --------------------------------------------

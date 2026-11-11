@@ -63,6 +63,28 @@ def test_qos_commands_use_cached_user_id(monkeypatch) -> None:
     ]
 
 
+def test_offline_history_uses_username_and_count(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
+    )
+    client = BrasClient(Settings()).connect()
+
+    assert client.offline_history("usuario", 5) == ""
+    assert client._conn.commands[-1] == (
+        "display aaa offline-record username usuario coun 5 | no-more"
+    )
+
+
+def test_offline_history_rejects_invalid_count(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
+    )
+    client = BrasClient(Settings()).connect()
+
+    with pytest.raises(ValueError):
+        client.offline_history("usuario", 0)
+
+
 def test_qos_rejects_invalid_user_id(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)

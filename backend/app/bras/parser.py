@@ -12,7 +12,12 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from ..schemas import MonitorSnapshot, ParseResult, StaticInfo
+from ..schemas import (
+    HistoryDisconnection,
+    MonitorSnapshot,
+    ParseResult,
+    StaticInfo,
+)
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
@@ -113,6 +118,62 @@ def parse_access_user(raw: str) -> ParseResult:
         static=static,
         user_id=_first_int(fields, "user access index"),
     )
+
+
+def _split_record_blocks(raw: str) -> list[str]:
+    """Separa registros de desconexiones del bloque de historial offline."""
+    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    blocks: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        text = "\n".join(current)
+        lowered = text.lower()
+        if "user name" in lowered and "user login time" in lowered:
+            blocks.append(text)
+        current.clear()
+
+    for line in lines:
+        if _is_separator(line):
+            flush()
+            continue
+        current.append(line)
+
+    flush()
+    return blocks
+
+
+def _duration_seconds(start: Optional[str], end: Optional[str]) -> Optional[int]:
+    if not start or not end:
+        return None
+    try:
+        start_dt = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    seconds = int((end_dt - start_dt).total_seconds())
+    return seconds if seconds >= 0 else None
+
+
+def parse_offline_records(raw: str) -> list[HistoryDisconnection]:
+    """Convierte `display aaa offline-record` en registros estructurados."""
+    records: list[HistoryDisconnection] = []
+    for block in _split_record_blocks(raw):
+        fields = _parse_fields(block)
+        start = _text(fields, "user login time")
+        end = _text(fields, "user offline time")
+        records.append(
+            HistoryDisconnection(
+                start=start,
+                end=end,
+                duration_seconds=_duration_seconds(start, end),
+                reason=_text(fields, "user offline reason"),
+                mac=_text(fields, "user mac"),
+                ip=_text(fields, "user ip address"),
+                interface=_text(fields, "user access interface"),
+            )
+        )
+    return records
 
 
 def to_snapshot(

@@ -12,6 +12,7 @@ def test_load_settings_defaults_and_override(tmp_path) -> None:
     override.write_text(
         "POLL_INTERVAL = 9\nMAX_SESIONES = 2\n"
         "QOS_INBOUND_COMMAND = 'display qos user-id {user_id} inbound'\n"
+        "HISTORY_LIMIT = 5\n"
         "JWT_SECRET = 'x'\n",
         encoding="utf-8",
     )
@@ -21,8 +22,10 @@ def test_load_settings_defaults_and_override(tmp_path) -> None:
     assert settings.poll_interval == 9
     assert settings.max_sesiones == 2
     assert settings.qos_inbound_command.endswith("inbound")
+    assert settings.history_limit == 5
     # valores no sobreescritos conservan el default
     assert settings.qos_outbound_command.endswith("outbound | no-more")
+    assert "offline-record" in settings.offline_history_command
     assert settings.session_ttl == 600
 
 

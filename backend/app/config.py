@@ -39,6 +39,10 @@ class Settings(BaseModel):
     )
     qos_inbound_command: str = "display qos user-id {user_id} inbound | no-more"
     qos_outbound_command: str = "display qos user-id {user_id} outbound | no-more"
+    offline_history_command: str = (
+        "display aaa offline-record username {username} coun {count} | no-more"
+    )
+    history_limit: int = 5
     cpu_command: str = "display cpu-usage | no-more"
     memory_command: str = "display memory-usage | no-more"
     users_command: str = "display access-user summary"
@@ -92,6 +96,8 @@ class Settings(BaseModel):
             )
         if self.max_sesiones < 1:
             problems.append("MAX_SESIONES debe ser >= 1")
+        if self.history_limit < 1:
+            problems.append("HISTORY_LIMIT debe ser >= 1")
         if problems:
             raise RuntimeError("Configuración inválida: " + "; ".join(problems))
 

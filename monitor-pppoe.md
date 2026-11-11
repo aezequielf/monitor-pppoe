@@ -4,8 +4,8 @@ Referencia persistente del proyecto. Reemplaza la memoria de contexto de la sesi
 todo lo necesario para retomar el trabajo está acá.
 
 Archivos de referencia:
-- `comando y salida.txt` — salida real de referencia (local, **no versionar**: contiene PII).
 - `backend/tests/fixtures/` — copias sanitizadas usadas por los tests.
+- Las salidas reales con PII (`comando y salida.txt`, `historicos.txt`) no se versionan.
 
 ## 0. Estado de implementación
 
@@ -16,6 +16,7 @@ Archivos de referencia:
 - [x] Paso 5 — frontend (HTML/CSS/JS + Chart.js) — código completo, falta prueba visual en navegador.
 - [x] Paso 6 — deploy: `deploy/backend.service` + `deploy/nginx.conf` listos (falta instalarlos en el servidor).
 - [x] Paso 7 — métricas del NAS (CPU/memoria/usuarios) y tasa por contadores QoS (+tests).
+- [x] Paso 8 — histórico de conexiones API Radius + últimas desconexiones BRAS en modal.
 
 > Nota de entorno: el servidor no traía `ensurepip`/`python3-venv`; el `.venv` se creó con
 > `python -m venv --without-pip` y se bootstrapeó pip con `get-pip.py`.
@@ -121,6 +122,30 @@ Del segundo/tercer comando se parsea el bloque `[total]`:
   `El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo.`, libera el
   lease y cierra el SSE. El frontend muestra ese mensaje.
 
+### 5.3 Histórico de conexiones
+
+Se consulta **una sola vez**, después del primer snapshot con `state="ok"`. Si el usuario no
+tiene conexión, no se ejecuta ninguna de las dos consultas y no se muestra el botón
+**Histórico**.
+
+Fuentes independientes (un fallo de una no afecta a la otra ni al monitoreo):
+
+```text
+display aaa offline-record username <usuario> coun 5 | no-more   # BRAS
+GET <webservice>?accion=consulta-con&login=<usuario>            # API Radius
+```
+
+- API Radius: hasta 80 conexiones; se toman las primeras 5 (ya vienen de la más nueva a la
+  más vieja). Incluye inicio, fin, upload/download en **bytes**, NAS, causa, MAC e IP.
+  Una conexión activa tiene `final` vacío.
+- BRAS: últimas 5 desconexiones con inicio, fin, IP, MAC, interfaz y motivo.
+- El frontend muestra **dos bloques separados** de hasta 5 filas cada uno:
+  - API: inicio, fin, duración, subida, bajada, IP, MAC, causa.
+  - BRAS: inicio, fin, duración, IP, MAC, motivo.
+- `upload/download` se formatean a B/KB/MB/GB con base 1000.
+- El resultado se cachea en el lease y se emite por SSE como evento `history` (se reenvía si
+  el navegador reconecta).
+
 ## 6. Parser (`bras/parser.py`)
 
 - Cortar en secciones: cabecera = línea sin `:` y sin guiones; contenido = `linea.split(':', 1)`
@@ -169,8 +194,10 @@ mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000
   (`inbound`/`outbound`, `[total]`, formato CAR sin clases, salida inválida).
 - `tests/test_rates.py`: baseline inicial, delta, contador en cero, reset, cambio de sesión y
   muestra faltante.
-- `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados y el caso
-  sin perfil QoS (mensaje de backend + liberación del lease).
+- `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados, el caso sin
+  perfil QoS y la carga única del histórico (incluido fallback independiente).
+- `tests/test_history.py`: parseo de `consulta-con`, límite de 5, conexión activa y respuesta
+  sin registros. `tests/test_parser.py` cubre el parseo de `offline-record`.
 
 ### 6.5 Métricas del NAS
 
@@ -221,6 +248,32 @@ class MonitorSnapshot(BaseModel):
     static: StaticInfo
     latest: LatestSample | None
     host: HostMetrics | None
+
+class HistoryConnection(BaseModel):     # API Radius
+    start: str | None
+    end: str | None
+    duration_seconds: int | None
+    upload_bytes: int | None
+    download_bytes: int | None
+    nas: str | None
+    reason: str | None
+    mac: str | None
+    ip: str | None
+
+class HistoryDisconnection(BaseModel):  # BRAS
+    start: str | None
+    end: str | None
+    duration_seconds: int | None
+    reason: str | None
+    mac: str | None
+    ip: str | None
+    interface: str | None
+
+class MonitorHistory(BaseModel):
+    connections: list[HistoryConnection]
+    disconnections: list[HistoryDisconnection]
+    connections_error: str | None
+    disconnections_error: str | None
 ```
 
 ## 8. API v1
@@ -251,6 +304,7 @@ El `lease_token` se usa en query para el stream (EventSource no manda headers) y
 
 ```
 event: snapshot       data: {MonitorSnapshot}      # incluye state: ok|sin_conexion|error
+event: history        data: {MonitorHistory}       # una vez; se reenvía al reconectar
 event: expired        data: {"reason":"expired"}
 event: error          data: {"reason":"ssh_error"}
 event: closed         data: {"reason":"manual|disconnected|heartbeat|shutdown"}
@@ -343,6 +397,11 @@ Autocompletado del abonado (`js/autocomplete.js`): al llegar a **3 caracteres** 
 filtran localmente la lista. Se navega con flechas y se selecciona con Enter o clic. El
 backend hace de proxy al webservice HTTP interno para evitar CORS y contenido mixto.
 
+**Histórico**: al final del dashboard aparece el botón **Histórico** solo si el usuario está
+online y hay registros. Abre un `<dialog>` modal con dos bloques de hasta 5 filas (API Radius
+y BRAS), con scroll vertical si hace falta y scroll horizontal para las tablas en pantallas
+angostas. No se consulta al abrir el modal: los datos llegan una vez por SSE.
+
 ## 11. Configuración (opción A: en repo pero gitignored)
 
 - `backend/instance/config.py` — **secretos, no versionado** (`.gitignore` incluye `backend/instance/`).
@@ -365,6 +424,8 @@ Claves:
 | `USERS_COMMAND` | `display access-user summary` |
 | `QOS_INBOUND_COMMAND` | `display qos user-id {user_id} inbound \| no-more` |
 | `QOS_OUTBOUND_COMMAND` | `display qos user-id {user_id} outbound \| no-more` |
+| `OFFLINE_HISTORY_COMMAND` | `display aaa offline-record username {username} coun {count} \| no-more` |
+| `HISTORY_LIMIT` | `5` |
 | `USERNAME_REGEX` | charset seguro del abonado |
 | `JWT_SECRET`, `JWT_ALG`, `ACCESS_TTL`, `REFRESH_TTL` | auth |
 | `DATABASE_PATH` | SQLite de usuarios (default `backend/instance/bras_monitor.db`) |
@@ -407,10 +468,11 @@ backend/
     bras/{client.py,parser.py}
     monitor/{lease.py,poller.py,rates.py,events.py,router.py}
     online_users.py         # proxy al webservice de usuarios online
+    history.py              # consulta del historial de conexiones Radius
     cli.py                  # bootstrap / crear usuarios
   instance/config.py        # SECRETOS, gitignored
   config.example.py
-  tests/{test_parser.py,test_rates.py,test_host_metrics.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,fixtures/}
+  tests/{test_parser.py,test_rates.py,test_host_metrics.py,test_auth_config.py,test_monitor.py,test_bras_client.py,test_online_users.py,test_history.py,fixtures/}
   requirements.txt
 frontend/
   index.html monitor.html
@@ -595,5 +657,7 @@ sudo systemctl restart monitor-pppoe                                            
   para datos estáticos; el `UserID` se cachea una sola vez al inicio.
 - Sin perfil QoS (`inbound`/`outbound` sin bytes parseables) → estado `error`, mensaje del
   backend, liberación del lease y cierre del SSE; el frontend vuelve a `idle`.
+- Histórico: API y BRAS como fuentes independientes, 5 registros cada una, consultadas una
+  sola vez tras confirmar conexión y emitidas por SSE. Si no hay conexión no se consultan.
 - Multi-sesión → error; inexistente → `sin_conexion` + cortar poller.
 - Secretos en `instance/config.py` gitignored (opción A).

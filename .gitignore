@@ -13,3 +13,4 @@ backend/instance/*.db
 
 # Sistema
 .DS_Store
+historicos.txt

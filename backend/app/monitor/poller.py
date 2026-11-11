@@ -8,8 +8,9 @@ from datetime import datetime, timezone
 
 import anyio
 
-from ..bras.parser import parse_access_user
-from ..schemas import HostMetrics, LatestSample, ParseResult
+from ..bras.parser import parse_access_user, parse_offline_records
+from ..history import fetch_connection_history
+from ..schemas import HostMetrics, LatestSample, MonitorHistory, ParseResult
 from .lease import Lease, LeaseManager
 from .rates import RateTracker
 
@@ -53,6 +54,36 @@ def _query_bundle(client, username: str) -> tuple[str, HostMetrics]:
     return raw, host
 
 
+async def _load_history(
+    manager: LeaseManager, lease: Lease, client
+) -> None:
+    """Carga una sola vez el histórico del BRAS y de la API Radius."""
+    history = MonitorHistory()
+
+    try:
+        raw = await anyio.to_thread.run_sync(
+            client.offline_history, lease.username, manager.settings.history_limit
+        )
+        history.disconnections = parse_offline_records(raw)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - el histórico es auxiliar
+        history.disconnections_error = f"No se pudo consultar el BRAS: {exc}"
+
+    try:
+        history.connections = await fetch_connection_history(
+            lease.username,
+            manager.settings,
+            limit=manager.settings.history_limit,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - el histórico es auxiliar
+        history.connections_error = str(exc)
+
+    manager.publish_history(lease, history)
+
+
 def _query_qos(client, user_id: int) -> tuple[int | None, float, int | None, float]:
     """Consulta los contadores QoS y registra el instante de cada muestra.
 
@@ -71,6 +102,7 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
     settings = manager.settings
     client = lease.client
     user_id: int | None = None
+    history_loaded = False
     rates = RateTracker()
 
     try:
@@ -134,6 +166,10 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
                 lease.snapshot, result
             ):
                 manager.publish_snapshot(lease, result)
+
+            if result.state == "ok" and not history_loaded:
+                history_loaded = True
+                await _load_history(manager, lease, client)
 
             if result.state == "sin_conexion":
                 # Usuario inexistente / sin sesión: cortar poller y cerrar SSH,

@@ -27,6 +27,18 @@ const els = {
   hostUsers: $("host-users-value"),
   userChip: $("user-chip-name"),
   chartCanvas: $("traffic-chart"),
+  historyBtn: $("history-btn"),
+  historyModal: $("history-modal"),
+  historyClose: $("history-close"),
+  historySubtitle: $("history-subtitle"),
+  historyApiBlock: $("history-api-block"),
+  historyApiRows: $("history-api-rows"),
+  historyApiError: $("history-api-error"),
+  historyApiEmpty: $("history-api-empty"),
+  historyBrasBlock: $("history-bras-block"),
+  historyBrasRows: $("history-bras-rows"),
+  historyBrasError: $("history-bras-error"),
+  historyBrasEmpty: $("history-bras-empty"),
   info: {
     mac: $("info-mac"),
     ip: $("info-ip"),
@@ -61,6 +73,8 @@ let acquiring = false;
 let currentUsername = "";
 let busyOwner = null;
 let busyExpiresAt = null;
+let historyData = null;
+let latestSnapshotState = null;
 
 /* ------------------------------------------------------------------ */
 /* Utilidades                                                         */
@@ -159,6 +173,138 @@ function updateInfo(info) {
   setText(els.info.outQos, info.out_qos);
   setText(els.info.inPir, info.in_pir_kbps, " kbps");
   setText(els.info.outCir, info.out_cir_kbps, " kbps");
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value < 0) return "—";
+  if (value < 1000) return `${value} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = value;
+  let unit = -1;
+  do {
+    size /= 1000;
+    unit += 1;
+  } while (size >= 1000 && unit < units.length - 1);
+  const digits = size >= 100 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(digits)} ${units[unit]}`;
+}
+
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const total = Math.floor(seconds);
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (minutes < 60) return `${minutes} min ${rest} s`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} h ${remaining} min` : `${hours} h`;
+}
+
+function formatMac(value) {
+  const raw = String(value ?? "").trim();
+  const hex = raw.replace(/[^0-9a-f]/gi, "").toUpperCase();
+  if (hex.length !== 12) return raw || "—";
+  return hex.match(/.{2}/g).join(":");
+}
+
+function cell(value) {
+  const td = document.createElement("td");
+  td.textContent = value === null || value === undefined || value === "" ? "—" : String(value);
+  return td;
+}
+
+function renderHistoryRows(tbody, rows, buildCells) {
+  tbody.replaceChildren();
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    buildCells(row).forEach((value) => tr.append(cell(value)));
+    tbody.append(tr);
+  });
+}
+
+function renderHistory(data) {
+  historyData = data;
+  const connections = Array.isArray(data.connections) ? data.connections : [];
+  const disconnections = Array.isArray(data.disconnections) ? data.disconnections : [];
+
+  els.historySubtitle.textContent = currentUsername
+    ? `Abonado: ${currentUsername}`
+    : "Últimas conexiones y desconexiones";
+
+  els.historyApiBlock.hidden = connections.length === 0 && !data.connections_error;
+  els.historyApiError.hidden = !data.connections_error;
+  els.historyApiError.textContent = data.connections_error || "";
+  els.historyApiEmpty.hidden = connections.length > 0 || Boolean(data.connections_error);
+  renderHistoryRows(els.historyApiRows, connections, (item) => [
+    item.start,
+    item.end || "En curso",
+    item.end ? formatDuration(item.duration_seconds) : "En curso",
+    formatBytes(item.upload_bytes),
+    formatBytes(item.download_bytes),
+    item.ip,
+    formatMac(item.mac),
+    item.reason,
+  ]);
+
+  els.historyBrasBlock.hidden =
+    disconnections.length === 0 && !data.disconnections_error;
+  els.historyBrasError.hidden = !data.disconnections_error;
+  els.historyBrasError.textContent = data.disconnections_error || "";
+  els.historyBrasEmpty.hidden =
+    disconnections.length > 0 || Boolean(data.disconnections_error);
+  renderHistoryRows(els.historyBrasRows, disconnections, (item) => [
+    item.start,
+    item.end,
+    formatDuration(item.duration_seconds),
+    item.ip,
+    formatMac(item.mac),
+    item.reason,
+  ]);
+
+  updateHistoryButton();
+}
+
+function hasHistoryRows() {
+  return Boolean(
+    historyData &&
+      ((Array.isArray(historyData.connections) && historyData.connections.length) ||
+        (Array.isArray(historyData.disconnections) && historyData.disconnections.length)),
+  );
+}
+
+function closeHistoryModal() {
+  if (els.historyModal.open) els.historyModal.close();
+}
+
+function updateHistoryButton() {
+  const visible = Boolean(lease && latestSnapshotState === "ok" && hasHistoryRows());
+  els.historyBtn.hidden = !visible;
+  if (!visible) closeHistoryModal();
+}
+
+function resetHistory() {
+  historyData = null;
+  latestSnapshotState = null;
+  els.historyBtn.hidden = true;
+  closeHistoryModal();
+  els.historySubtitle.textContent = "Últimas conexiones y desconexiones";
+  els.historyApiBlock.hidden = true;
+  els.historyBrasBlock.hidden = true;
+  els.historyApiRows.replaceChildren();
+  els.historyBrasRows.replaceChildren();
+  els.historyApiError.hidden = true;
+  els.historyBrasError.hidden = true;
+  els.historyApiError.textContent = "";
+  els.historyBrasError.textContent = "";
+  els.historyApiEmpty.hidden = true;
+  els.historyBrasEmpty.hidden = true;
+}
+
+function openHistory() {
+  if (!hasHistoryRows()) return;
+  if (!els.historyModal.open) els.historyModal.showModal();
+  els.historyClose.focus();
 }
 
 /* ------------------------------------------------------------------ */
@@ -265,6 +411,7 @@ function startSession(data) {
   resetChart();
   resetInfo();
   resetHostMetrics();
+  resetHistory();
   setMetric(null, null);
   setPill("warn", "Conectando…");
   updateCountdown();
@@ -293,6 +440,16 @@ function openStream() {
       return;
     }
     handleSnapshot(snapshot);
+  });
+
+  stream.addEventListener("history", (event) => {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    renderHistory(data);
   });
 
   stream.addEventListener("expired", () => {
@@ -327,6 +484,8 @@ function closeStream() {
 
 function handleSnapshot(snapshot) {
   if (!lease) return;
+  latestSnapshotState = snapshot.state;
+  updateHistoryButton();
   updateInfo(snapshot.static || {});
   setHostMetrics(snapshot.host);
 
@@ -438,6 +597,7 @@ function teardown() {
   setMonitorLoading(false);
   resetInfo();
   resetHostMetrics();
+  resetHistory();
   setMetric(null, null);
 }
 
@@ -502,6 +662,11 @@ els.form.addEventListener("submit", (event) => {
 
 els.closeBtn.addEventListener("click", onClose);
 els.logoutBtn.addEventListener("click", onLogout);
+els.historyBtn.addEventListener("click", openHistory);
+els.historyClose.addEventListener("click", closeHistoryModal);
+els.historyModal.addEventListener("click", (event) => {
+  if (event.target === els.historyModal) closeHistoryModal();
+});
 
 els.alert.addEventListener("click", (event) => {
   if (event.target.closest('[data-action="retry"]')) {

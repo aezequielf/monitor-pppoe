@@ -20,7 +20,7 @@ import anyio
 from ..bras.client import BrasClient
 from ..bras.parser import parse_access_user, to_snapshot
 from ..config import Settings
-from ..schemas import MonitorSnapshot
+from ..schemas import MonitorHistory, MonitorSnapshot
 
 
 def _now() -> datetime:
@@ -47,6 +47,7 @@ class Lease:
     state: str = "connecting"
     client: Any = None
     snapshot: MonitorSnapshot | None = None
+    history: MonitorHistory | None = None
     version: int = 0
     poller: asyncio.Task | None = None
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -183,6 +184,10 @@ class LeaseManager:
         lease.snapshot = snapshot
         self._push(lease, {"event": "snapshot", "snapshot": snapshot})
         return snapshot
+
+    def publish_history(self, lease: Lease, history: MonitorHistory) -> None:
+        lease.history = history
+        self._push(lease, {"event": "history", "history": history})
 
     def publish_error(self, lease: Lease, message: str) -> MonitorSnapshot:
         lease.version += 1

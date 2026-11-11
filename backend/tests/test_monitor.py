@@ -8,21 +8,43 @@ from pathlib import Path
 import pytest
 
 from app.config import Settings
+from app.history import ConnectionHistoryError
 from app.monitor.events import event_stream
 from app.monitor.lease import LeaseBusy, LeaseManager
 from app.monitor.poller import QOS_MISSING_MESSAGE
+from app.schemas import HistoryConnection
 
 FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
+HISTORY_FIXTURE = Path(__file__).parent / "fixtures" / "offline_history.txt"
+
+
+@pytest.fixture(autouse=True)
+def stub_radius_history(monkeypatch):
+    async def empty_history(username, settings, limit=5):
+        return []
+
+    monkeypatch.setattr(
+        "app.monitor.poller.fetch_connection_history", empty_history
+    )
 
 
 class FakeClient:
     def __init__(
-        self, settings, raw, qos_increment: int = 0, qos_missing: bool = False
+        self,
+        settings,
+        raw,
+        qos_increment: int = 0,
+        qos_missing: bool = False,
+        history_raw: str = "",
+        history_error: bool = False,
     ) -> None:
         self._raw = raw
+        self._history_raw = history_raw
+        self.history_error = history_error
         self.connected = False
         self.closed = False
         self.queries = 0
+        self.history_calls = 0
         self.qos_increment = qos_increment
         self.qos_missing = qos_missing
         self.up_bytes = 0
@@ -38,6 +60,12 @@ class FakeClient:
     def query(self, username: str) -> str:
         self.queries += 1
         return self._raw
+
+    def offline_history(self, username: str, count: int) -> str:
+        self.history_calls += 1
+        if self.history_error:
+            raise RuntimeError("falló el comando de historial")
+        return self._history_raw
 
     def qos_inbound(self, user_id: int) -> int | None:
         if self.qos_missing:
@@ -69,9 +97,18 @@ def _factory(
     made: list[FakeClient],
     qos_increment: int = 0,
     qos_missing: bool = False,
+    history_raw: str = "",
+    history_error: bool = False,
 ):
     def make(settings: Settings) -> FakeClient:
-        client = FakeClient(settings, raw, qos_increment, qos_missing)
+        client = FakeClient(
+            settings,
+            raw,
+            qos_increment,
+            qos_missing,
+            history_raw,
+            history_error,
+        )
         made.append(client)
         return client
 
@@ -114,6 +151,14 @@ async def _wait_released(lease, attempts: int = 200) -> None:
     raise AssertionError("No se liberó el lease")
 
 
+async def _wait_history(lease, attempts: int = 200) -> None:
+    for _ in range(attempts):
+        if lease.history is not None:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("No se cargó el histórico")
+
+
 def test_acquire_polls_and_release() -> None:
     raw = FIXTURE.read_text(encoding="utf-8")
     made: list[FakeClient] = []
@@ -139,6 +184,89 @@ def test_acquire_polls_and_release() -> None:
             assert manager.occupied() == 0
             assert made[0].closed is True
             assert lease.released.is_set()
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_history_loads_once_from_both_sources(monkeypatch) -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+    made: list[FakeClient] = []
+    api_calls: list[str] = []
+
+    async def fake_api(username, settings, limit=5):
+        api_calls.append(username)
+        return [
+            HistoryConnection(
+                start="2026-11-06 09:37:29",
+                end="2026-11-06 14:40:09",
+                duration_seconds=18_160,
+                upload_bytes=1_234_567,
+                download_bytes=9_876_543_210,
+                mac="AA:BB:CC:DD:EE:FF",
+                ip="203.0.113.10",
+            )
+        ]
+
+    monkeypatch.setattr("app.monitor.poller.fetch_connection_history", fake_api)
+
+    async def scenario() -> None:
+        manager = LeaseManager(
+            _settings(poll_interval=0.01),
+            client_factory=_factory(raw, made, history_raw=history_raw),
+        )
+        manager.start()
+        try:
+            lease = await manager.acquire("alice", "usuario")
+            await _wait_history(lease)
+
+            assert lease.history is not None
+            assert len(lease.history.connections) == 1
+            assert len(lease.history.disconnections) == 5
+            assert lease.history.connections_error is None
+            assert lease.history.disconnections_error is None
+            assert made[0].history_calls == 1
+            assert api_calls == ["usuario"]
+
+            await asyncio.sleep(0.05)
+            assert made[0].history_calls == 1
+            assert api_calls == ["usuario"]
+            await manager.release(lease)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_history_api_failure_keeps_bras_and_monitoring(monkeypatch) -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+    made: list[FakeClient] = []
+
+    async def fake_api(username, settings, limit=5):
+        raise ConnectionHistoryError("API no disponible")
+
+    monkeypatch.setattr("app.monitor.poller.fetch_connection_history", fake_api)
+
+    async def scenario() -> None:
+        manager = LeaseManager(
+            _settings(poll_interval=0.01),
+            client_factory=_factory(raw, made, history_raw=history_raw),
+        )
+        manager.start()
+        try:
+            lease = await manager.acquire("alice", "usuario")
+            await _wait_history(lease)
+
+            assert lease.snapshot is not None
+            assert lease.snapshot.state == "ok"
+            assert lease.history is not None
+            assert lease.history.connections == []
+            assert len(lease.history.disconnections) == 5
+            assert lease.history.connections_error == "API no disponible"
+            await manager.release(lease)
         finally:
             await manager.shutdown()
 
@@ -216,9 +344,17 @@ def test_busy_when_no_free_slots() -> None:
     asyncio.run(scenario())
 
 
-def test_sin_conexion_stops_poller_but_keeps_lease() -> None:
+def test_sin_conexion_stops_poller_but_keeps_lease(monkeypatch) -> None:
     raw = "Error: The user does not exist."
     made: list[FakeClient] = []
+    api_calls = 0
+
+    async def fake_api(username, settings, limit=5):
+        nonlocal api_calls
+        api_calls += 1
+        return []
+
+    monkeypatch.setattr("app.monitor.poller.fetch_connection_history", fake_api)
 
     async def scenario() -> None:
         manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
@@ -231,6 +367,9 @@ def test_sin_conexion_stops_poller_but_keeps_lease() -> None:
             await asyncio.sleep(0.05)
             assert lease.poller is not None and lease.poller.done()
             assert made[0].closed is True
+            assert made[0].history_calls == 0
+            assert api_calls == 0
+            assert lease.history is None
             assert manager.occupied() == 1
             await manager.release(lease)
         finally:
@@ -299,6 +438,35 @@ def test_event_stream_emits_snapshot_and_expired() -> None:
                 frames.append(frame)
             await stream.aclose()
             assert any("event: expired" in frame for frame in frames)
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_event_stream_replays_cached_history() -> None:
+    raw = FIXTURE.read_text(encoding="utf-8")
+    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+    made: list[FakeClient] = []
+
+    async def scenario() -> None:
+        manager = LeaseManager(
+            _settings(poll_interval=0.01),
+            client_factory=_factory(raw, made, history_raw=history_raw),
+        )
+        manager.start()
+        try:
+            lease = await manager.acquire("alice", "usuario")
+            await _wait_history(lease)
+
+            stream = event_stream(lease)
+            first = await asyncio.wait_for(anext(stream), timeout=1)
+            second = await asyncio.wait_for(anext(stream), timeout=1)
+            await stream.aclose()
+
+            assert first.startswith("event: snapshot")
+            assert second.startswith("event: history")
+            assert '"disconnections"' in second
         finally:
             await manager.shutdown()
 
