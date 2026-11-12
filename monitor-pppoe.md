@@ -182,6 +182,8 @@ mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000
 ### 6.3 Cadencia y emisión
 
 - Los contadores QoS se consultan cada `POLL_INTERVAL=5s` con la misma conexión SSH.
+  El intervalo se mide de inicio a inicio: se descuenta el tiempo consumido por los comandos,
+  no se suma una espera completa después de cada consulta.
 - El verbose se sigue consultando cada ciclo para mantener actualizados MAC/IP/inicio/QoS.
 - **SSE emite solo cuando cambia** la tasa calculada o alguna métrica del NAS/estática.
 - `SAMPLE_MODE = on_change | every_poll` (configurable). `on_change` compara `up_mbps` y

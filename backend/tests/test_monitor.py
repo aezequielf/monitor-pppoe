@@ -11,7 +11,7 @@ from app.config import Settings
 from app.history import ConnectionHistoryError
 from app.monitor.events import event_stream
 from app.monitor.lease import LeaseBusy, LeaseManager
-from app.monitor.poller import QOS_MISSING_MESSAGE
+from app.monitor.poller import QOS_MISSING_MESSAGE, _remaining_poll_delay
 from app.schemas import HistoryConnection
 
 FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
@@ -157,6 +157,13 @@ async def _wait_history(lease, attempts: int = 200) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("No se cargó el histórico")
+
+
+def test_remaining_poll_delay_subtracts_command_time(monkeypatch) -> None:
+    monkeypatch.setattr("app.monitor.poller.time.monotonic", lambda: 10.0)
+
+    assert _remaining_poll_delay(8.5, 3) == pytest.approx(1.5)
+    assert _remaining_poll_delay(6.0, 3) == 0
 
 
 def test_acquire_polls_and_release() -> None:

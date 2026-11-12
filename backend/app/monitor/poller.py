@@ -98,6 +98,11 @@ def _query_qos(client, user_id: int) -> tuple[int | None, float, int | None, flo
     return up_bytes, up_ts, down_bytes, down_ts
 
 
+def _remaining_poll_delay(cycle_started: float, interval: float) -> float:
+    """Descuenta del intervalo el tiempo consumido por los comandos del ciclo."""
+    return max(0.0, interval - (time.monotonic() - cycle_started))
+
+
 async def run_poller(manager: LeaseManager, lease: Lease) -> None:
     settings = manager.settings
     client = lease.client
@@ -107,6 +112,7 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
 
     try:
         while not lease.stop_event.is_set():
+            cycle_started = time.monotonic()
             try:
                 raw, host = await anyio.to_thread.run_sync(
                     _query_bundle, client, lease.username
@@ -179,10 +185,11 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
                 lease.state = "sin_conexion"
                 return
 
+            delay = _remaining_poll_delay(cycle_started, settings.poll_interval)
+            if delay <= 0:
+                continue
             try:
-                await asyncio.wait_for(
-                    lease.stop_event.wait(), timeout=settings.poll_interval
-                )
+                await asyncio.wait_for(lease.stop_event.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 continue
             else:
