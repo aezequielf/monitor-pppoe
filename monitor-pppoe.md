@@ -397,7 +397,17 @@ Gráfica: Chart.js 4 local (`frontend/vendor/chart.umd.min.js`), dos datasets (s
 Colores: subida `#22d3ee`, bajada `#a78bfa`.
 
 Arriba de subida/bajada se muestran tres métricas del NAS: **CPU**, **memoria** y **usuarios
-online** (`snapshot.host`). Se actualizan con cada snapshot (solo cuando cambian).
+online** (`snapshot.host`). Se actualizan con cada snapshot (solo cuando cambian). Cada tarjeta
+incluye un **mini-gauge SVG semicircular** junto al número; el número sigue siendo el valor
+exacto y el gauge colorea según umbral:
+
+| Métrica | Verde | Amarillo | Naranja | Rojo |
+|---|---|---|---|---|
+| CPU | `<35%` | `35-59%` | `60-74%` | `>=75%` |
+| Memoria | `<=50%` | — | `51-75%` | `>75%` |
+| Usuarios | `<=20000` | `20001-28000` | `28001-29000` | `>29000` (escala hasta 32000) |
+
+Si SNMP no devuelve valor, el número y el gauge quedan en gris.
 
 La barra superior muestra `<chasis> · <versión de software>` cuando responde
 `/api/v1/monitor/system/info`; si falla, se oculta el chip.

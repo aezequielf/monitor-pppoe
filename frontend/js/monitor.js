@@ -25,6 +25,12 @@ const els = {
   hostCpu: $("host-cpu-value"),
   hostMemory: $("host-memory-value"),
   hostUsers: $("host-users-value"),
+  hostCpuCard: document.querySelector(".host-metric--cpu"),
+  hostMemoryCard: document.querySelector(".host-metric--memory"),
+  hostUsersCard: document.querySelector(".host-metric--users"),
+  gaugeCpu: $("gauge-cpu-arc"),
+  gaugeMemory: $("gauge-memory-arc"),
+  gaugeUsers: $("gauge-users-arc"),
   userChip: $("user-chip-name"),
   deviceBar: document.querySelector(".topbar__device"),
   deviceChassis: $("device-chassis-name"),
@@ -148,16 +154,54 @@ function resetInfo() {
   });
 }
 
+const GAUGE_USERS_MAX = 32000;
+
 function hostNumber(value, { thousands = false } = {}) {
   if (!Number.isFinite(value)) return "—";
   return thousands ? value.toLocaleString("es-AR") : String(value);
 }
 
+function clampGauge(value, max) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, (value / max) * 100));
+}
+
+function gaugeColor(kind, value) {
+  if (!Number.isFinite(value)) return "var(--muted)";
+  if (kind === "cpu") {
+    if (value < 35) return "var(--green)";
+    if (value < 60) return "var(--amber)";
+    if (value < 75) return "var(--orange)";
+    return "var(--red)";
+  }
+  if (kind === "memory") {
+    if (value <= 50) return "var(--green)";
+    if (value <= 75) return "var(--orange)";
+    return "var(--red)";
+  }
+  if (value <= 20000) return "var(--green)";
+  if (value <= 28000) return "var(--amber)";
+  if (value <= 29000) return "var(--orange)";
+  return "var(--red)";
+}
+
+function setGauge(card, arc, value, max, kind) {
+  card.style.setProperty("--gauge-color", gaugeColor(kind, value));
+  const offset = 100 - clampGauge(value, max);
+  arc.style.setProperty("--gauge-offset", offset.toFixed(2));
+}
+
 function setHostMetrics(host) {
   const data = host || {};
-  els.hostCpu.textContent = hostNumber(data.cpu_percent);
-  els.hostMemory.textContent = hostNumber(data.memory_percent);
-  els.hostUsers.textContent = hostNumber(data.online_users, { thousands: true });
+  const cpu = data.cpu_percent;
+  const memory = data.memory_percent;
+  const users = data.online_users;
+  els.hostCpu.textContent = hostNumber(cpu);
+  els.hostMemory.textContent = hostNumber(memory);
+  els.hostUsers.textContent = hostNumber(users, { thousands: true });
+  setGauge(els.hostCpuCard, els.gaugeCpu, cpu, 100, "cpu");
+  setGauge(els.hostMemoryCard, els.gaugeMemory, memory, 100, "memory");
+  setGauge(els.hostUsersCard, els.gaugeUsers, users, GAUGE_USERS_MAX, "users");
 }
 
 function resetHostMetrics() {

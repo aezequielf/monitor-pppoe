@@ -21,6 +21,7 @@
   --violet: #a78bfa;
   --green: #34d399;
   --amber: #fbbf24;
+  --orange: #fb923c;
   --red: #f87171;
 
   --radius: 16px;
@@ -797,9 +798,43 @@ p {
   color: var(--muted);
 }
 
+.host-metric__readout {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gauge {
+  width: 46px;
+  height: 28px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.gauge__track,
+.gauge__value {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.gauge__track {
+  stroke: rgba(148, 163, 184, 0.16);
+}
+
+.gauge__value {
+  stroke: var(--gauge-color, var(--muted));
+  stroke-dasharray: 100;
+  stroke-dashoffset: var(--gauge-offset, 100);
+  transition: stroke-dashoffset 0.35s ease, stroke 0.2s ease;
+}
+
 .host-metric__value {
   display: flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 3px;
   font-size: 22px;
   font-weight: 700;
@@ -808,15 +843,15 @@ p {
 }
 
 .host-metric--cpu .host-metric__value {
-  color: var(--amber);
+  color: var(--gauge-color, var(--amber));
 }
 
 .host-metric--memory .host-metric__value {
-  color: var(--violet);
+  color: var(--gauge-color, var(--violet));
 }
 
 .host-metric--users .host-metric__value {
-  color: var(--green);
+  color: var(--gauge-color, var(--green));
 }
 
 .host-metric__unit {

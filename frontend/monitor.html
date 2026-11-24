@@ -115,20 +115,38 @@
         <div class="host-metrics">
           <article class="host-metric host-metric--cpu card">
             <span class="host-metric__label">CPU del NAS</span>
-            <div class="host-metric__value">
-              <span id="host-cpu-value">—</span><span class="host-metric__unit">%</span>
+            <div class="host-metric__readout">
+              <svg class="gauge" viewBox="0 0 60 36" aria-hidden="true">
+                <path class="gauge__track" d="M6 30 A24 24 0 0 1 54 30" />
+                <path class="gauge__value" id="gauge-cpu-arc" pathLength="100" d="M6 30 A24 24 0 0 1 54 30" />
+              </svg>
+              <div class="host-metric__value">
+                <span id="host-cpu-value">—</span><span class="host-metric__unit">%</span>
+              </div>
             </div>
           </article>
           <article class="host-metric host-metric--memory card">
             <span class="host-metric__label">Memoria del NAS</span>
-            <div class="host-metric__value">
-              <span id="host-memory-value">—</span><span class="host-metric__unit">%</span>
+            <div class="host-metric__readout">
+              <svg class="gauge" viewBox="0 0 60 36" aria-hidden="true">
+                <path class="gauge__track" d="M6 30 A24 24 0 0 1 54 30" />
+                <path class="gauge__value" id="gauge-memory-arc" pathLength="100" d="M6 30 A24 24 0 0 1 54 30" />
+              </svg>
+              <div class="host-metric__value">
+                <span id="host-memory-value">—</span><span class="host-metric__unit">%</span>
+              </div>
             </div>
           </article>
           <article class="host-metric host-metric--users card">
             <span class="host-metric__label">Usuarios online</span>
-            <div class="host-metric__value">
-              <span id="host-users-value">—</span>
+            <div class="host-metric__readout">
+              <svg class="gauge" viewBox="0 0 60 36" aria-hidden="true">
+                <path class="gauge__track" d="M6 30 A24 24 0 0 1 54 30" />
+                <path class="gauge__value" id="gauge-users-arc" pathLength="100" d="M6 30 A24 24 0 0 1 54 30" />
+              </svg>
+              <div class="host-metric__value">
+                <span id="host-users-value">—</span>
+              </div>
             </div>
           </article>
         </div>
