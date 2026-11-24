@@ -453,24 +453,30 @@ p {
   max-width: 100%;
   padding: 6px 11px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(26, 36, 64, 0.5);
+  border: 1px solid rgba(79, 140, 255, 0.55);
+  background: linear-gradient(
+    180deg,
+    rgba(79, 140, 255, 0.2),
+    rgba(79, 140, 255, 0.08)
+  );
+  box-shadow: 0 8px 22px -14px rgba(79, 140, 255, 0.95);
   font-size: 12px;
-  color: var(--text-soft);
+  font-weight: 600;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .device-chip__label {
-  color: var(--muted);
+  color: #9dc0ff;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 10px;
 }
 
 .device-chip__sep {
-  color: var(--muted);
+  color: rgba(157, 192, 255, 0.6);
 }
 
 .user-chip {
@@ -746,11 +752,51 @@ p {
   background: rgba(79, 140, 255, 0.1);
   color: var(--accent);
   margin-bottom: 4px;
+  animation: ecg-glow 2.6s ease-in-out infinite;
 }
 
 .empty-state__icon svg {
   width: 28px;
   height: 28px;
+  overflow: visible;
+}
+
+.empty-state__icon svg path {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 3px rgba(79, 140, 255, 0.55));
+  animation: ecg-draw 2.6s ease-in-out infinite;
+}
+
+@keyframes ecg-draw {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  35%,
+  70% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes ecg-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 140, 255, 0);
+  }
+  35% {
+    box-shadow: 0 0 0 6px rgba(79, 140, 255, 0.08),
+      0 0 20px -8px rgba(79, 140, 255, 0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-state__icon,
+  .empty-state__icon svg path {
+    animation: none;
+  }
 }
 
 .empty-state h2 {
