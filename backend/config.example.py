@@ -13,27 +13,7 @@ espera. Solo hace falta definir lo que se quiera sobreescribir.
 
 # --- BRAS ---------------------------------------------------------------
 BRAS_HOST = "192.0.2.10"          # IP/hostname del BRAS
-BRAS_PORT = 22
-BRAS_USER = "monitor"
-BRAS_PASSWORD = "CAMBIAR"
-BRAS_SECRET = ""                  # password de enable (si aplica)
-BRAS_DEVICE_TYPE = "huawei"
-BRAS_CONN_TIMEOUT = 15
-BRAS_READ_TIMEOUT = 30
-
-COMMAND_TEMPLATE = "display access-user username {username} verbose nop | no-more"
-# Contadores QoS para calcular la tasa real (inbound = subida, outbound = bajada)
-QOS_INBOUND_COMMAND = "display qos user-id {user_id} inbound | no-more"
-QOS_OUTBOUND_COMMAND = "display qos user-id {user_id} outbound | no-more"
-# Últimas desconexiones del usuario (se consulta una vez al iniciar el lease)
-OFFLINE_HISTORY_COMMAND = (
-    "display aaa offline-record username {username} coun {count} | no-more"
-)
 HISTORY_LIMIT = 5
-# Métricas del NAS que se muestran junto al abonado
-CPU_COMMAND = "display cpu-usage | no-more"
-MEMORY_COMMAND = "display memory-usage | no-more"
-USERS_COMMAND = "display access-user summary"
 USERNAME_REGEX = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$"
 
 # --- Auth / JWT ---------------------------------------------------------
@@ -72,3 +52,19 @@ CORS_ORIGINS = []
 # En producción nginx sirve frontend/. En dev se puede montar desde FastAPI.
 SERVE_FRONTEND = False
 # FRONTEND_DIR = "/ruta/a/monitor-pppoe/frontend"
+
+# --- NETCONF -------------------------------------------------------------
+NETCONF_HOST = BRAS_HOST
+NETCONF_PORT = 830
+NETCONF_USER = "CAMBIAR"
+NETCONF_PASSWORD = "CAMBIAR"
+NETCONF_TIMEOUT = 10
+
+# --- SNMP ----------------------------------------------------------------
+SNMP_HOST = BRAS_HOST
+SNMP_VERSION = 2
+SNMP_PORT = 161
+SNMP_COMMUNITY = "CAMBIAR"
+SNMP_TIMEOUT = 2
+SNMP_RETRIES = 1
+SNMP_POLL_INTERVAL = 5

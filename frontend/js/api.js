@@ -84,6 +84,10 @@ export function me() {
   return request("/auth/me");
 }
 
+export function systemInfo() {
+  return request("/monitor/system/info");
+}
+
 export function acquire(username) {
   return request("/monitor/leases", { method: "POST", body: { username } });
 }

@@ -10,7 +10,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..auth.dependencies import get_current_user
-from ..schemas import MonitorSnapshot
+from ..bras.client import BrasClient
+from ..schemas import MonitorSnapshot, SystemInfo
 from .events import SSE_HEADERS, event_stream
 from .lease import Lease, LeaseBusy, LeaseManager
 
@@ -49,13 +50,29 @@ def _authorize(manager: LeaseManager, token: Optional[str], owner: str) -> Lease
     return lease
 
 
+@router.get("/system/info", response_model=SystemInfo)
+async def system_info(
+    _owner: str = Depends(get_current_user),
+    manager: LeaseManager = Depends(get_manager),
+) -> SystemInfo:
+    client = BrasClient(manager.settings)
+    try:
+        return await client.system_info()
+    except Exception as exc:  # noqa: BLE001 - se reporta como fallo SNMP
+        raise HTTPException(
+            status_code=502, detail=f"No se pudo consultar SNMP: {exc}"
+        ) from exc
+    finally:
+        await client.aclose()
+
+
 @router.post(
     "/leases",
     response_model=AcquireResponse,
     status_code=201,
     responses={
         409: {"description": "El recurso exclusivo está ocupado por otro operador."},
-        502: {"description": "No se pudo conectar o consultar el BRAS."},
+         502: {"description": "No se pudo conectar o consultar el BRAS por NETCONF."},
     },
 )
 async def acquire(
@@ -85,7 +102,7 @@ async def acquire(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - se reporta como fallo del BRAS
         raise HTTPException(
-            status_code=502, detail=f"No se pudo conectar al BRAS: {exc}"
+            status_code=502, detail=f"No se pudo consultar el BRAS por NETCONF: {exc}"
         ) from exc
 
     return AcquireResponse(
@@ -135,7 +152,7 @@ async def release(
     owner: str = Depends(get_current_user),
     manager: LeaseManager = Depends(get_manager),
 ) -> Response:
-    """Libera el recurso y cierra la conexión SSH del slot."""
+    """Libera el recurso y cierra la sesión NETCONF del slot."""
     lease = _authorize(manager, lease_token, owner)
     await manager.release(lease, reason="manual")
     return Response(status_code=204)

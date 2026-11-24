@@ -1,95 +1,143 @@
 from __future__ import annotations
 
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
 import pytest
 
 from app.bras.client import BrasClient
 from app.config import Settings
 
-
-class FakeConnection:
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-        self.commands: list[str] = []
-
-    def send_command(self, command: str, **kwargs) -> str:
-        self.commands.append(command)
-        return ""
-
-    def enable(self) -> None:
-        pass
-
-    def disconnect(self) -> None:
-        pass
-
-    def is_alive(self) -> bool:
-        return True
+FIXTURES = Path(__file__).parent / "fixtures"
+USER_XML = (FIXTURES / "access_user.xml").read_text(encoding="utf-8")
+OFFLINE_XML = (FIXTURES / "offline_records.xml").read_text(encoding="utf-8")
+QOS_XML = (FIXTURES / "qos_counters.xml").read_text(encoding="utf-8")
 
 
-def test_connect_uses_supported_netmiko_timeout_kwarg(monkeypatch) -> None:
-    captured: dict = {}
+class FakeReply:
+    ok = True
+    error = ""
 
-    def fake_handler(**kwargs) -> FakeConnection:
+    def __init__(self, data_xml: str) -> None:
+        self.data_xml = data_xml
+
+
+class FakeManager:
+    def __init__(self, data_xml: str) -> None:
+        self.data_xml = data_xml
+        self.filters: list[str] = []
+        self.closed = False
+        self.connected = True
+
+    def get(self, filter):
+        self.filters.append(filter[1])
+        return FakeReply(self.data_xml)
+
+    def close_session(self) -> None:
+        self.closed = True
+
+
+def _values(xml: str) -> dict[str, str]:
+    root = ET.fromstring(xml)
+    return {
+        element.tag.rsplit("}", 1)[-1]: (element.text or "").strip()
+        for element in root.iter()
+    }
+
+
+def _tags(xml: str) -> set[str]:
+    return {
+        element.tag.rsplit("}", 1)[-1] for element in ET.fromstring(xml).iter()
+    }
+
+
+def _patch_connect(monkeypatch, manager: FakeManager, captured: dict) -> None:
+    def connect(**kwargs):
         captured.update(kwargs)
-        return FakeConnection(**kwargs)
+        return manager
 
-    monkeypatch.setattr("app.bras.client.ConnectHandler", fake_handler)
+    monkeypatch.setattr("app.bras.netconf.ncclient_manager.connect", connect)
+
+
+def test_connect_uses_netconf_defaults(monkeypatch) -> None:
+    captured: dict = {}
+    manager = FakeManager(USER_XML)
+    _patch_connect(monkeypatch, manager, captured)
 
     settings = Settings(
         bras_host="198.51.100.1",
-        bras_user="monitor",
-        bras_password="secret",
-        bras_conn_timeout=7,
-        bras_read_timeout=42,
+        netconf_user="monitor",
+        netconf_password="secret",
+        netconf_timeout=7,
     )
     client = BrasClient(settings).connect()
 
-    assert "read_timeout" not in captured
-    assert captured["read_timeout_override"] == 42
-    assert captured["conn_timeout"] == 7
-    assert client.query("usuario") == ""
+    assert captured["host"] == "198.51.100.1"
+    assert captured["port"] == 830
+    assert captured["username"] == "monitor"
+    assert captured["password"] == "secret"
+    assert captured["timeout"] == 7
+    assert "device_params" not in captured
+    assert client.connected is True
 
 
-def test_qos_commands_use_cached_user_id(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
-    )
+def test_get_access_user_returns_parsed_result(monkeypatch) -> None:
+    manager = FakeManager(USER_XML)
+    _patch_connect(monkeypatch, manager, {})
+
     client = BrasClient(Settings()).connect()
+    result = client.get_access_user("usuario_prueba")
 
-    assert client.qos_inbound(10001) is None
-    assert client.qos_outbound(10001) is None
-    assert client._conn.commands[-2:] == [
-        "display qos user-id 10001 inbound | no-more",
-        "display qos user-id 10001 outbound | no-more",
-    ]
+    assert result.state == "ok"
+    assert result.user_id == 21747
+    assert "usuario_prueba" in manager.filters[-1]
 
 
-def test_offline_history_uses_username_and_count(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
-    )
+def test_offline_history_returns_parsed_records(monkeypatch) -> None:
+    manager = FakeManager(OFFLINE_XML)
+    _patch_connect(monkeypatch, manager, {})
+
     client = BrasClient(Settings()).connect()
+    records = client.offline_history("usuario_prueba", 5)
 
-    assert client.offline_history("usuario", 5) == ""
-    assert client._conn.commands[-1] == (
-        "display aaa offline-record username usuario coun 5 | no-more"
-    )
+    assert len(records) == 5
+    assert "online-fail-or-offline-record" in _tags(manager.filters[-1])
+    assert _values(manager.filters[-1])["view-count"] == "5"
+
+
+def test_qos_counters_uses_access_index_filter(monkeypatch) -> None:
+    manager = FakeManager(QOS_XML)
+    _patch_connect(monkeypatch, manager, {})
+
+    client = BrasClient(Settings()).connect()
+    assert client.qos_counters(21747) == (8_941_651_101, 43_149_452_521)
+    assert _values(manager.filters[-1])["id"] == "21747"
+    assert "offline-record" not in _tags(manager.filters[-1])
 
 
 def test_offline_history_rejects_invalid_count(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
-    )
+    manager = FakeManager(OFFLINE_XML)
+    _patch_connect(monkeypatch, manager, {})
+
     client = BrasClient(Settings()).connect()
-
     with pytest.raises(ValueError):
-        client.offline_history("usuario", 0)
+        client.offline_history("usuario_prueba", 0)
 
 
-def test_qos_rejects_invalid_user_id(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.bras.client.ConnectHandler", lambda **kwargs: FakeConnection(**kwargs)
-    )
+def test_qos_rejects_invalid_access_index(monkeypatch) -> None:
+    manager = FakeManager(QOS_XML)
+    _patch_connect(monkeypatch, manager, {})
+
     client = BrasClient(Settings()).connect()
-
     with pytest.raises(ValueError):
-        client.qos_inbound(-1)  # type: ignore[arg-type]
+        client.qos_counters(-1)
+
+
+def test_close_closes_netconf_session(monkeypatch) -> None:
+    manager = FakeManager(USER_XML)
+    _patch_connect(monkeypatch, manager, {})
+
+    client = BrasClient(Settings()).connect()
+    client.close()
+
+    assert manager.closed is True

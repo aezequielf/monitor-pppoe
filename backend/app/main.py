@@ -47,7 +47,10 @@ OPENAPI_TAGS = [
 app = FastAPI(
     title="Monitor PPPoE",
     version=__version__,
-    description="Monitoreo en tiempo real de sesiones de abonados en un BRAS.",
+    description=(
+        "Monitoreo en tiempo real de sesiones de abonados en un BRAS "
+        "mediante NETCONF y SNMP."
+    ),
     lifespan=lifespan,
     openapi_tags=OPENAPI_TAGS,
     docs_url="/api/docs",

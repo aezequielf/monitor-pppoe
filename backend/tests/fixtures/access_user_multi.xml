@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+  <bras-user-manage xmlns="urn:huawei:yang:huawei-bras-user-manage">
+    <access-tables>
+      <access-table>
+        <access-index>21747</access-index>
+        <access-user-basic-info>
+          <access-user-name>usuario_prueba</access-user-name>
+          <access-ipaddress>203.0.113.10</access-ipaddress>
+          <access-mac-address>aabb-ccdd-eeff</access-mac-address>
+          <access-start-time>2026-01-01 00:00:00</access-start-time>
+        </access-user-basic-info>
+      </access-table>
+      <access-table>
+        <access-index>21748</access-index>
+        <access-user-basic-info>
+          <access-user-name>usuario_prueba</access-user-name>
+          <access-ipaddress>203.0.113.11</access-ipaddress>
+          <access-mac-address>aabb-ccdd-ee00</access-mac-address>
+          <access-start-time>2026-01-02 00:00:00</access-start-time>
+        </access-user-basic-info>
+      </access-table>
+    </access-tables>
+  </bras-user-manage>
+</data>

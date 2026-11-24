@@ -14,7 +14,7 @@ from app.auth.router import router as auth_router
 from app.monitor.lease import LeaseBusy
 from app.monitor.router import get_manager
 from app.monitor.router import router as monitor_router
-from app.schemas import LatestSample, MonitorSnapshot, StaticInfo
+from app.schemas import LatestSample, MonitorSnapshot, StaticInfo, SystemInfo
 
 
 class FakeLease:
@@ -248,6 +248,30 @@ def test_status_lists_leases(monitor_client) -> None:
     assert body["capacidad"] == 1
     assert body["ocupados"] == 1
     assert body["leases"][0]["owner"] == "alice"
+
+
+def test_system_info_returns_chassis_and_version(monitor_client, monkeypatch) -> None:
+    class FakeBrasClient:
+        def __init__(self, settings) -> None:
+            pass
+
+        async def system_info(self) -> SystemInfo:
+            return SystemInfo(
+                chassis_name="HUAWEI NetEngine 8000 F1A-8H20Q",
+                software_version="NetEngine 8000 V800R023C00SPC500",
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr("app.monitor.router.BrasClient", FakeBrasClient)
+    client, _ = monitor_client
+
+    response = client.get("/api/v1/monitor/system/info")
+
+    assert response.status_code == 200
+    assert response.json()["chassis_name"] == "HUAWEI NetEngine 8000 F1A-8H20Q"
+    assert response.json()["software_version"] == "NetEngine 8000 V800R023C00SPC500"
 
 
 def test_stream_unknown_lease_returns_404(monitor_client) -> None:

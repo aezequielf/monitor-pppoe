@@ -25,7 +25,7 @@ def _history_frame(history: MonitorHistory) -> str:
 def _released_frame(reason: str | None) -> str:
     if reason == "expired":
         event = "expired"
-    elif reason == "ssh_error":
+    elif reason in ("ssh_error", "netconf_error", "snmp_error"):
         event = "error"
     else:
         event = "closed"

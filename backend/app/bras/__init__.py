@@ -1,1 +1,1 @@
-"""Integración con el BRAS (Netmiko) y parseo de la salida."""
+"""Integración con el BRAS mediante NETCONF y SNMP."""

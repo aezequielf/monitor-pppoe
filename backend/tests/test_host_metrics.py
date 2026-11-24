@@ -1,42 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
-import pytest
-
-from app.bras.parser import (
-    parse_access_user_summary,
-    parse_cpu_usage,
-    parse_memory_usage,
-)
+from app.bras.snmp import parse_chassis_name, parse_software_version
 from app.monitor.poller import _has_changed
 from app.schemas import HostMetrics, LatestSample, ParseResult
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-def test_parse_cpu_usage() -> None:
-    raw = (FIXTURES / "cpu_usage.txt").read_text(encoding="utf-8")
-    assert parse_cpu_usage(raw) == 14
-
-
-def test_parse_memory_usage() -> None:
-    raw = (FIXTURES / "memory_usage.txt").read_text(encoding="utf-8")
-    assert parse_memory_usage(raw) == 14
-
-
-def test_parse_access_user_summary() -> None:
-    raw = (FIXTURES / "access_user_summary.txt").read_text(encoding="utf-8")
-    assert parse_access_user_summary(raw) == 8566
-
-
-@pytest.mark.parametrize(
-    "parser",
-    [parse_cpu_usage, parse_memory_usage, parse_access_user_summary],
+SYS_DESCR = (
+    "Huawei Versatile Routing Platform Software VRP (R) software, "
+    "Version 8.230 (NetEngine 8000 V800R023C00SPC500) Copyright (C) 2012-2023 "
+    "Huawei Technologies Co., Ltd. HUAWEI NetEngine 8000 F1A-8H20Q"
 )
-def test_parsers_return_none_on_unknown_output(parser) -> None:
-    assert parser("salida inesperada") is None
+
+
+def test_parse_software_version() -> None:
+    assert parse_software_version(SYS_DESCR) == "NetEngine 8000 V800R023C00SPC500"
+    assert parse_software_version(None) is None
+
+
+def test_parse_chassis_name() -> None:
+    assert parse_chassis_name(SYS_DESCR) == "HUAWEI NetEngine 8000 F1A-8H20Q"
+    assert parse_chassis_name(None) is None
 
 
 def _result(cpu: int) -> ParseResult:

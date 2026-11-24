@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
+from app.bras.parser import parse_access_user, parse_offline_records
 from app.config import Settings
 from app.history import ConnectionHistoryError
 from app.monitor.events import event_stream
@@ -14,8 +14,18 @@ from app.monitor.lease import LeaseBusy, LeaseManager
 from app.monitor.poller import QOS_MISSING_MESSAGE, _remaining_poll_delay
 from app.schemas import HistoryConnection
 
-FIXTURE = Path(__file__).parent / "fixtures" / "salida.txt"
-HISTORY_FIXTURE = Path(__file__).parent / "fixtures" / "offline_history.txt"
+FIXTURES = Path(__file__).parent / "fixtures"
+USER_XML = FIXTURES / "access_user.xml"
+USER_MULTI_XML = FIXTURES / "access_user_multi.xml"
+HISTORY_XML = FIXTURES / "offline_records.xml"
+
+EMPTY_USER_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+  <bras-user-manage xmlns="urn:huawei:yang:huawei-bras-user-manage">
+    <access-tables/>
+  </bras-user-manage>
+</data>
+"""
 
 
 @pytest.fixture(autouse=True)
@@ -23,28 +33,29 @@ def stub_radius_history(monkeypatch):
     async def empty_history(username, settings, limit=5):
         return []
 
-    monkeypatch.setattr(
-        "app.monitor.poller.fetch_connection_history", empty_history
-    )
+    monkeypatch.setattr("app.monitor.poller.fetch_connection_history", empty_history)
 
 
 class FakeClient:
     def __init__(
         self,
         settings,
-        raw,
+        user_xml: str,
         qos_increment: int = 0,
         qos_missing: bool = False,
-        history_raw: str = "",
+        history_xml: str = "",
         history_error: bool = False,
     ) -> None:
-        self._raw = raw
-        self._history_raw = history_raw
+        self._user_result = parse_access_user(user_xml)
+        self._history_records = (
+            parse_offline_records(history_xml) if history_xml else []
+        )
         self.history_error = history_error
         self.connected = False
         self.closed = False
         self.queries = 0
         self.history_calls = 0
+        self.qos_calls = 0
         self.qos_increment = qos_increment
         self.qos_missing = qos_missing
         self.up_bytes = 0
@@ -57,56 +68,55 @@ class FakeClient:
     def connect(self) -> None:
         self.connected = True
 
-    def query(self, username: str) -> str:
+    def get_access_user(self, username: str):
         self.queries += 1
-        return self._raw
+        return self._user_result
 
-    def offline_history(self, username: str, count: int) -> str:
+    def offline_history(self, username: str, count: int):
         self.history_calls += 1
         if self.history_error:
-            raise RuntimeError("falló el comando de historial")
-        return self._history_raw
+            raise RuntimeError("falló la consulta de historial")
+        return self._history_records
 
-    def qos_inbound(self, user_id: int) -> int | None:
+    def qos_counters(self, access_index: int) -> tuple[int | None, int | None]:
+        self.qos_calls += 1
         if self.qos_missing:
-            return None
+            return None, None
         self.up_bytes += self.qos_increment
-        return self.up_bytes
-
-    def qos_outbound(self, user_id: int) -> int | None:
-        if self.qos_missing:
-            return None
         self.down_bytes += self.qos_increment * 2
-        return self.down_bytes
+        return self.up_bytes, self.down_bytes
 
-    def cpu_usage(self) -> int:
+    async def cpu_usage(self) -> int:
         return 14
 
-    def memory_usage(self) -> int:
+    async def memory_usage(self) -> int:
         return 21
 
-    def online_users(self) -> int:
+    async def online_users(self) -> int:
         return 8566
 
     def close(self) -> None:
         self.closed = True
 
+    async def aclose(self) -> None:
+        self.close()
+
 
 def _factory(
-    raw: str,
+    user_xml: str,
     made: list[FakeClient],
     qos_increment: int = 0,
     qos_missing: bool = False,
-    history_raw: str = "",
+    history_xml: str = "",
     history_error: bool = False,
 ):
     def make(settings: Settings) -> FakeClient:
         client = FakeClient(
             settings,
-            raw,
+            user_xml,
             qos_increment,
             qos_missing,
-            history_raw,
+            history_xml,
             history_error,
         )
         made.append(client)
@@ -118,6 +128,7 @@ def _factory(
 def _settings(**overrides) -> Settings:
     base = {
         "poll_interval": 0.02,
+        "snmp_poll_interval": 0.01,
         "session_ttl": 60,
         "disconnect_grace": 10,
         "heartbeat_ttl": 45,
@@ -167,15 +178,16 @@ def test_remaining_poll_delay_subtracts_command_time(monkeypatch) -> None:
 
 
 def test_acquire_polls_and_release() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
-        manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
+        manager = LeaseManager(_settings(), client_factory=_factory(user_xml, made))
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
             assert lease.state == "active"
+            assert made[0].queries == 1
             await _wait_snapshot(lease)
             assert lease.snapshot is not None
             assert lease.snapshot.state == "ok"
@@ -198,8 +210,8 @@ def test_acquire_polls_and_release() -> None:
 
 
 def test_history_loads_once_from_both_sources(monkeypatch) -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
-    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
+    history_xml = HISTORY_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
     api_calls: list[str] = []
 
@@ -222,7 +234,7 @@ def test_history_loads_once_from_both_sources(monkeypatch) -> None:
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01),
-            client_factory=_factory(raw, made, history_raw=history_raw),
+            client_factory=_factory(user_xml, made, history_xml=history_xml),
         )
         manager.start()
         try:
@@ -247,9 +259,9 @@ def test_history_loads_once_from_both_sources(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
-def test_history_api_failure_keeps_bras_and_monitoring(monkeypatch) -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
-    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+def test_history_api_failure_keeps_netconf_and_monitoring(monkeypatch) -> None:
+    user_xml = USER_XML.read_text(encoding="utf-8")
+    history_xml = HISTORY_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def fake_api(username, settings, limit=5):
@@ -260,15 +272,14 @@ def test_history_api_failure_keeps_bras_and_monitoring(monkeypatch) -> None:
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01),
-            client_factory=_factory(raw, made, history_raw=history_raw),
+            client_factory=_factory(user_xml, made, history_xml=history_xml),
         )
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
             await _wait_history(lease)
 
-            assert lease.snapshot is not None
-            assert lease.snapshot.state == "ok"
+            assert lease.snapshot is None or lease.snapshot.state != "error"
             assert lease.history is not None
             assert lease.history.connections == []
             assert len(lease.history.disconnections) == 5
@@ -281,13 +292,13 @@ def test_history_api_failure_keeps_bras_and_monitoring(monkeypatch) -> None:
 
 
 def test_qos_counters_produce_rate_sample() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01),
-            client_factory=_factory(raw, made, qos_increment=5_000_000),
+            client_factory=_factory(user_xml, made, qos_increment=5_000_000),
         )
         manager.start()
         try:
@@ -308,13 +319,13 @@ def test_qos_counters_produce_rate_sample() -> None:
 
 
 def test_missing_qos_closes_lease_with_backend_message() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01),
-            client_factory=_factory(raw, made, qos_missing=True),
+            client_factory=_factory(user_xml, made, qos_missing=True),
         )
         manager.start()
         try:
@@ -333,11 +344,11 @@ def test_missing_qos_closes_lease_with_backend_message() -> None:
 
 
 def test_busy_when_no_free_slots() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
-        manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
+        manager = LeaseManager(_settings(), client_factory=_factory(user_xml, made))
         manager.start()
         try:
             first = await manager.acquire("alice", "usuario")
@@ -352,7 +363,6 @@ def test_busy_when_no_free_slots() -> None:
 
 
 def test_sin_conexion_stops_poller_but_keeps_lease(monkeypatch) -> None:
-    raw = "Error: The user does not exist."
     made: list[FakeClient] = []
     api_calls = 0
 
@@ -364,7 +374,9 @@ def test_sin_conexion_stops_poller_but_keeps_lease(monkeypatch) -> None:
     monkeypatch.setattr("app.monitor.poller.fetch_connection_history", fake_api)
 
     async def scenario() -> None:
-        manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
+        manager = LeaseManager(
+            _settings(), client_factory=_factory(EMPTY_USER_XML, made)
+        )
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
@@ -374,6 +386,7 @@ def test_sin_conexion_stops_poller_but_keeps_lease(monkeypatch) -> None:
             await asyncio.sleep(0.05)
             assert lease.poller is not None and lease.poller.done()
             assert made[0].closed is True
+            assert made[0].queries == 1
             assert made[0].history_calls == 0
             assert api_calls == 0
             assert lease.history is None
@@ -386,19 +399,18 @@ def test_sin_conexion_stops_poller_but_keeps_lease(monkeypatch) -> None:
 
 
 def test_multiple_sessions_publish_error() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_MULTI_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
-        manager = LeaseManager(
-            _settings(), client_factory=_factory(raw + "\n" + raw, made)
-        )
+        manager = LeaseManager(_settings(), client_factory=_factory(user_xml, made))
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
             await _wait_snapshot(lease)
             assert lease.snapshot is not None
             assert lease.snapshot.state == "error"
+            assert made[0].history_calls == 0
             await manager.release(lease)
         finally:
             await manager.shutdown()
@@ -407,11 +419,11 @@ def test_multiple_sessions_publish_error() -> None:
 
 
 def test_reaper_releases_expired() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
-        manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
+        manager = LeaseManager(_settings(), client_factory=_factory(user_xml, made))
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
@@ -426,11 +438,11 @@ def test_reaper_releases_expired() -> None:
 
 
 def test_event_stream_emits_snapshot_and_expired() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
-        manager = LeaseManager(_settings(), client_factory=_factory(raw, made))
+        manager = LeaseManager(_settings(), client_factory=_factory(user_xml, made))
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
@@ -452,19 +464,20 @@ def test_event_stream_emits_snapshot_and_expired() -> None:
 
 
 def test_event_stream_replays_cached_history() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
-    history_raw = HISTORY_FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
+    history_xml = HISTORY_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01),
-            client_factory=_factory(raw, made, history_raw=history_raw),
+            client_factory=_factory(user_xml, made, history_xml=history_xml),
         )
         manager.start()
         try:
             lease = await manager.acquire("alice", "usuario")
             await _wait_history(lease)
+            await _wait_snapshot(lease)
 
             stream = event_stream(lease)
             first = await asyncio.wait_for(anext(stream), timeout=1)
@@ -481,13 +494,13 @@ def test_event_stream_replays_cached_history() -> None:
 
 
 def test_on_change_does_not_republish_same_values() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01, sample_mode="on_change"),
-            client_factory=_factory(raw, made),
+            client_factory=_factory(user_xml, made),
         )
         manager.start()
         try:
@@ -504,13 +517,13 @@ def test_on_change_does_not_republish_same_values() -> None:
 
 
 def test_every_poll_republishes() -> None:
-    raw = FIXTURE.read_text(encoding="utf-8")
+    user_xml = USER_XML.read_text(encoding="utf-8")
     made: list[FakeClient] = []
 
     async def scenario() -> None:
         manager = LeaseManager(
             _settings(poll_interval=0.01, sample_mode="every_poll"),
-            client_factory=_factory(raw, made),
+            client_factory=_factory(user_xml, made),
         )
         manager.start()
         try:

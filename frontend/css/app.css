@@ -438,6 +438,40 @@ p {
   gap: 12px;
 }
 
+.topbar__device {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+}
+
+.device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(26, 36, 64, 0.5);
+  font-size: 12px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.device-chip__label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+
+.device-chip__sep {
+  color: var(--muted);
+}
+
 .user-chip {
   display: inline-flex;
   align-items: center;
@@ -1150,6 +1184,12 @@ p {
   }
   .topbar__inner {
     padding: 11px 14px;
+    flex-wrap: wrap;
+  }
+  .topbar__device {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
   }
   .brand__sub {
     display: none;

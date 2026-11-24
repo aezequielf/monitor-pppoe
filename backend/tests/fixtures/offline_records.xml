@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+  <bras-user-manage xmlns="urn:huawei:yang:huawei-bras-user-manage">
+    <online-fail-or-offline-records>
+      <online-fail-or-offline-record>
+        <record-number>148044</record-number>
+        <record-type>offline-record</record-type>
+        <user-name>usuario_prueba</user-name>
+        <mac-address>aabb-ccdd-eeff</mac-address>
+        <ipv4-address>203.0.113.10</ipv4-address>
+        <login-time>2026-11-06 09:37:29</login-time>
+        <offline-time>2026-11-06 14:40:09</offline-time>
+        <online-fail-or-offline-reason>PPP with echo fail</online-fail-or-offline-reason>
+        <view-count>5</view-count>
+      </online-fail-or-offline-record>
+      <online-fail-or-offline-record>
+        <record-number>148043</record-number>
+        <record-type>offline-record</record-type>
+        <user-name>usuario_prueba</user-name>
+        <mac-address>aabb-ccdd-eeff</mac-address>
+        <ipv4-address>203.0.113.11</ipv4-address>
+        <login-time>2026-11-05 22:10:00</login-time>
+        <offline-time>2026-11-06 08:00:00</offline-time>
+        <online-fail-or-offline-reason>Receive PADR packet from user while user online</online-fail-or-offline-reason>
+        <view-count>5</view-count>
+      </online-fail-or-offline-record>
+      <online-fail-or-offline-record>
+        <record-number>148042</record-number>
+        <record-type>offline-record</record-type>
+        <user-name>usuario_prueba</user-name>
+        <mac-address>aabb-ccdd-eeff</mac-address>
+        <ipv4-address>203.0.113.12</ipv4-address>
+        <login-time>2026-11-04 10:00:00</login-time>
+        <offline-time>2026-11-05 20:00:00</offline-time>
+        <online-fail-or-offline-reason>PPP with echo fail</online-fail-or-offline-reason>
+        <view-count>5</view-count>
+      </online-fail-or-offline-record>
+      <online-fail-or-offline-record>
+        <record-number>148041</record-number>
+        <record-type>offline-record</record-type>
+        <user-name>usuario_prueba</user-name>
+        <mac-address>aabb-ccdd-eeff</mac-address>
+        <ipv4-address>203.0.113.13</ipv4-address>
+        <login-time>2026-11-03 08:00:00</login-time>
+        <offline-time>2026-11-04 09:30:00</offline-time>
+        <online-fail-or-offline-reason>User request</online-fail-or-offline-reason>
+        <view-count>5</view-count>
+      </online-fail-or-offline-record>
+      <online-fail-or-offline-record>
+        <record-number>148040</record-number>
+        <record-type>offline-record</record-type>
+        <user-name>usuario_prueba</user-name>
+        <mac-address>aabb-ccdd-eeff</mac-address>
+        <ipv4-address>203.0.113.14</ipv4-address>
+        <login-time>2026-11-02 07:00:00</login-time>
+        <offline-time>2026-11-02 19:00:00</offline-time>
+        <online-fail-or-offline-reason>PPP with echo fail</online-fail-or-offline-reason>
+        <view-count>5</view-count>
+      </online-fail-or-offline-record>
+    </online-fail-or-offline-records>
+  </bras-user-manage>
+</data>

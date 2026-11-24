@@ -24,29 +24,26 @@ DEFAULT_DATABASE_PATH = BASE_DIR / "instance" / "bras_monitor.db"
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    # --- BRAS ---
+    # --- BRAS / NETCONF / SNMP ---
     bras_host: str = ""
-    bras_port: int = 22
     bras_user: str = ""
     bras_password: str = ""
-    bras_secret: str = ""
-    bras_device_type: str = "huawei"
-    bras_conn_timeout: int = 15
-    bras_read_timeout: int = 30
-
-    command_template: str = (
-        "display access-user username {username} verbose nop | no-more"
-    )
-    qos_inbound_command: str = "display qos user-id {user_id} inbound | no-more"
-    qos_outbound_command: str = "display qos user-id {user_id} outbound | no-more"
-    offline_history_command: str = (
-        "display aaa offline-record username {username} coun {count} | no-more"
-    )
     history_limit: int = 5
-    cpu_command: str = "display cpu-usage | no-more"
-    memory_command: str = "display memory-usage | no-more"
-    users_command: str = "display access-user summary"
     username_regex: str = r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$"
+
+    netconf_host: str = ""
+    netconf_port: int = 830
+    netconf_user: str = ""
+    netconf_password: str = ""
+    netconf_timeout: int = 10
+
+    snmp_host: str = ""
+    snmp_version: int = 2
+    snmp_port: int = 161
+    snmp_community: str = ""
+    snmp_timeout: float = 2.0
+    snmp_retries: int = 1
+    snmp_poll_interval: float = 5.0
 
     # --- Auth / JWT ---
     jwt_secret: str = ""

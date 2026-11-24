@@ -8,14 +8,13 @@ from datetime import datetime, timezone
 
 import anyio
 
-from ..bras.parser import parse_access_user, parse_offline_records
 from ..history import fetch_connection_history
 from ..schemas import HostMetrics, LatestSample, MonitorHistory, ParseResult
-from .lease import Lease, LeaseManager
+from .lease import Lease, LeaseManager, _close_client
 from .rates import RateTracker
 
 QOS_MISSING_MESSAGE = (
-    "El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo."
+    "El usuario no tiene contadores QoS disponibles para este tipo de monitoreo."
 )
 
 
@@ -36,39 +35,17 @@ def _has_changed(previous, result: ParseResult) -> bool:
     )
 
 
-def _optional(call):
-    try:
-        return call()
-    except Exception:
-        return None
-
-
-def _query_bundle(client, username: str) -> tuple[str, HostMetrics]:
-    """Consulta el abonado y, sin cortar la sesión, las métricas del NAS."""
-    raw = client.query(username)
-    host = HostMetrics(
-        cpu_percent=_optional(lambda: client.cpu_usage()),
-        memory_percent=_optional(lambda: client.memory_usage()),
-        online_users=_optional(lambda: client.online_users()),
-    )
-    return raw, host
-
-
-async def _load_history(
-    manager: LeaseManager, lease: Lease, client
-) -> None:
-    """Carga una sola vez el histórico del BRAS y de la API Radius."""
+async def load_history(manager: LeaseManager, lease: Lease, client) -> None:
     history = MonitorHistory()
 
     try:
-        raw = await anyio.to_thread.run_sync(
+        history.disconnections = await anyio.to_thread.run_sync(
             client.offline_history, lease.username, manager.settings.history_limit
         )
-        history.disconnections = parse_offline_records(raw)
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 - el histórico es auxiliar
-        history.disconnections_error = f"No se pudo consultar el BRAS: {exc}"
+    except Exception as exc:
+        history.disconnections_error = f"No se pudo consultar NETCONF: {exc}"
 
     try:
         history.connections = await fetch_connection_history(
@@ -78,24 +55,16 @@ async def _load_history(
         )
     except asyncio.CancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 - el histórico es auxiliar
+    except Exception as exc:
         history.connections_error = str(exc)
 
     manager.publish_history(lease, history)
 
 
-def _query_qos(client, user_id: int) -> tuple[int | None, float, int | None, float]:
-    """Consulta los contadores QoS y registra el instante de cada muestra.
-
-    Un `None` significa que el comando no devolvió una salida parseable: el
-    usuario no tiene QoS asignado para esa dirección. Los errores de conexión
-    se propagan para que el poller los trate como fallo SSH.
-    """
-    up_bytes = client.qos_inbound(user_id)
-    up_ts = time.monotonic()
-    down_bytes = client.qos_outbound(user_id)
-    down_ts = time.monotonic()
-    return up_bytes, up_ts, down_bytes, down_ts
+def _query_qos(client, access_index: int) -> tuple[int | None, float, int | None, float]:
+    up_bytes, down_bytes = client.qos_counters(access_index)
+    ts = time.monotonic()
+    return up_bytes, ts, down_bytes, ts
 
 
 def _remaining_poll_delay(cycle_started: float, interval: float) -> float:
@@ -103,43 +72,55 @@ def _remaining_poll_delay(cycle_started: float, interval: float) -> float:
     return max(0.0, interval - (time.monotonic() - cycle_started))
 
 
+async def _fetch_host_metrics(client) -> HostMetrics:
+    return HostMetrics(
+        cpu_percent=await client.cpu_usage(),
+        memory_percent=await client.memory_usage(),
+        online_users=await client.online_users(),
+    )
+
+
 async def run_poller(manager: LeaseManager, lease: Lease) -> None:
     settings = manager.settings
     client = lease.client
-    user_id: int | None = None
-    history_loaded = False
+    result = lease.initial_result
+    if result is None:
+        return
+
+    access_index = result.user_id if result.state == "ok" else None
     rates = RateTracker()
+    host = HostMetrics()
+    last_snmp_update = 0.0
 
     try:
         while not lease.stop_event.is_set():
             cycle_started = time.monotonic()
-            try:
-                raw, host = await anyio.to_thread.run_sync(
-                    _query_bundle, client, lease.username
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                manager.publish_error(lease, f"Error de SSH: {exc}")
-                # No esperamos aquí: `release` cancelaría esta misma tarea.
-                asyncio.create_task(manager.release(lease, reason="ssh_error"))
-                return
+            if (
+                last_snmp_update == 0.0
+                or cycle_started - last_snmp_update >= settings.snmp_poll_interval
+            ):
+                try:
+                    host = await _fetch_host_metrics(client)
+                    last_snmp_update = cycle_started
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    manager.publish_error(lease, f"Error de SNMP: {exc}")
+                    asyncio.create_task(manager.release(lease, reason="snmp_error"))
+                    return
 
-            result = parse_access_user(raw)
             result.host = host
-            if user_id is None:
-                user_id = result.user_id
 
-            if user_id is not None and result.state == "ok":
+            if access_index is not None and result.state == "ok":
                 try:
                     up_bytes, up_ts, down_bytes, down_ts = (
-                        await anyio.to_thread.run_sync(_query_qos, client, user_id)
+                        await anyio.to_thread.run_sync(_query_qos, client, access_index)
                     )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    manager.publish_error(lease, f"Error de SSH: {exc}")
-                    asyncio.create_task(manager.release(lease, reason="ssh_error"))
+                    manager.publish_error(lease, f"Error de NETCONF: {exc}")
+                    asyncio.create_task(manager.release(lease, reason="netconf_error"))
                     return
 
                 if up_bytes is None or down_bytes is None:
@@ -155,7 +136,7 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
                     up_ts=up_ts,
                     down_bytes=down_bytes,
                     down_ts=down_ts,
-                    session_key=f"{user_id}:{start_time}",
+                    session_key=f"{access_index}:{start_time}",
                 )
                 if up_mbps is not None and down_mbps is not None:
                     result.latest = LatestSample(
@@ -173,14 +154,8 @@ async def run_poller(manager: LeaseManager, lease: Lease) -> None:
             ):
                 manager.publish_snapshot(lease, result)
 
-            if result.state == "ok" and not history_loaded:
-                history_loaded = True
-                await _load_history(manager, lease, client)
-
             if result.state == "sin_conexion":
-                # Usuario inexistente / sin sesión: cortar poller y cerrar SSH,
-                # pero mantener el lease hasta que venza o el operador lo cierre.
-                await anyio.to_thread.run_sync(client.close)
+                await _close_client(client)
                 lease.client = None
                 lease.state = "sin_conexion"
                 return

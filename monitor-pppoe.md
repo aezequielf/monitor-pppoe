@@ -4,19 +4,20 @@ Referencia persistente del proyecto. Reemplaza la memoria de contexto de la sesi
 todo lo necesario para retomar el trabajo está acá.
 
 Archivos de referencia:
-- `backend/tests/fixtures/` — copias sanitizadas usadas por los tests.
+- `backend/tests/fixtures/` — copias sanitizadas usadas por los tests (XML NETCONF y salidas Radius).
 - Las salidas reales con PII (`comando y salida.txt`, `historicos.txt`) no se versionan.
 
 ## 0. Estado de implementación
 
 - [x] Paso 1 — scaffold, config loader, auth JWT + SQLite, `/health`, CLI.
-- [x] Paso 2 — `bras/client.py` (Netmiko persistente), `bras/parser.py`, tests contra salida real.
+- [x] Paso 2 — `bras/client.py` (NETCONF persistente), `bras/parser.py`, tests contra XML sanitizado.
 - [x] Paso 3 — `LeaseManager` + poller + SSE (gracia, heartbeat, TTL) + endpoints de monitoreo.
 - [x] Paso 4 — pulido de OpenAPI (`/api/docs`, tags, descripciones) + suite de tests.
 - [x] Paso 5 — frontend (HTML/CSS/JS + Chart.js) — código completo, falta prueba visual en navegador.
 - [x] Paso 6 — deploy: `deploy/backend.service` + `deploy/nginx.conf` listos (falta instalarlos en el servidor).
 - [x] Paso 7 — métricas del NAS (CPU/memoria/usuarios) y tasa por contadores QoS (+tests).
 - [x] Paso 8 — histórico de conexiones API Radius + últimas desconexiones BRAS en modal.
+- [x] Paso 9 — migración a NETCONF (usuario/QoS/desconexiones) + SNMP (CPU/memoria/usuarios/chasis/versión).
 
 > Nota de entorno: el servidor no traía `ensurepip`/`python3-venv`; el `.venv` se creó con
 > `python -m venv --without-pip` y se bootstrapeó pip con `get-pip.py`.
@@ -34,18 +35,19 @@ consumible por otras aplicaciones** (no solo por el front propio).
 - **Operador / usuario del sistema**: quien se loguea en la app (autenticación JWT).
 - **Subscriber / abonado**: el usuario del BRAS cuya sesión se consulta (ej. `usuario`). **No**
   es el operador.
-- **Slot / lease**: recurso exclusivo compuesto por **1 conexión SSH persistente + 1 poller**.
+- **Slot / lease**: recurso exclusivo compuesto por **1 conexión NETCONF persistente + 1 cliente SNMP + 1 poller**.
 
 ## 3. Requisitos funcionales
 
 - Monitorear **1 subscriber a la vez** (ver §9 "Caso A"). Escalable a 2-3 en el futuro.
 - Login (JWT). Varias personas pueden usarlo, pero solo una ocupa el recurso a la vez.
+- Mostrar chasis y versión de software del NAS en la barra superior tras el login.
 - Mostrar datos estáticos de la sesión **una sola vez**.
 - Graficar velocidades **en tiempo real** consultando cada ~5 s.
 - **Solo lectura** por ahora (a futuro: acciones, ej. desconectar al abonado).
 - Segundo operador: **rechazo** con `409` + opción de **reintentar**.
-- La pantalla muestra **botón "Cerrar conexión"** que cierra el SSH al terminar.
-- Pantalla y sesión SSH viven **máximo 10 minutos** (TTL duro) — suficiente para diagnóstico.
+- La pantalla muestra **botón "Cerrar conexión"** que cierra la sesión NETCONF al terminar.
+- Pantalla y sesión NETCONF viven **máximo 10 minutos** (TTL duro) — suficiente para diagnóstico.
 - Si el cliente cierra la página / pierde conexión: el backend **libera el recurso**.
 - Usuario con **múltiples sesiones** → mostrar **error**.
 - Usuario **inexistente** → mostrar **sin conexión** y **cortar el poller**.
@@ -64,81 +66,74 @@ consumible por otras aplicaciones** (no solo por el front propio).
 | Proceso | uvicorn **`--workers 1`** (el lease vive en memoria) |
 | Dominio | **mismo dominio y puerto** (nginx sirve front en `/`, proxya `/api/`) |
 | Repo | monorepo `backend/` + `frontend/` |
-| Exclusión | 1 slot = 1 viewer = 1 SSH + 1 poller (`MAX_SESIONES` configurable) |
+| Exclusión | 1 slot = 1 viewer = 1 NETCONF + 1 SNMP + 1 poller (`MAX_SESIONES` configurable) |
 
-## 5. BRAS: comando y salida
+## 5. BRAS: consultas NETCONF y SNMP
 
-Comando (Huawei VRP), con el usuario inyectado:
+Ya no se usa Netmiko ni comandos CLI. La conexión persistente por lease es **NETCONF sobre SSH**
+(`ncclient`, sin `device_params={"name": "huawei"}` para mantener el modo RFC-compliant). Las
+métricas del NAS y la info del chasis se leen por **SNMP v2c** (`pysnmp` 7, API asyncio).
 
-```
-display access-user username <usuario> verbose nop | no-more
-```
+### 5.1 Datos del equipo (SNMP)
 
-`| no-more` desactiva la paginación. `device_type` de Netmiko: `huawei`.
+Al entrar, el frontend consulta `GET /api/v1/monitor/system/info`. El backend hace dos `GET`
+SNMP y muestra el resultado en la barra superior:
 
-La salida se divide en secciones: `Basic`, `AAA`, `Dot1X`, `VPN&Policy-route`,
-`Multicast Service`, `ACL&QoS`, `Flow Statistic`, `Dslam information`.
+| Dato | OID |
+|---|---|
+| Nombre del chasis | `1.3.6.1.2.1.47.1.1.1.1.7.16777216` |
+| Detalle/`sysDescr` (versión de software) | `1.3.6.1.2.1.1.1.0` |
 
-### 5.1 Campos a mostrar (una vez)
-
-| Campo pantalla | Sección | Clave en salida |
-|---|---|---|
-| MAC | Basic | `User MAC` |
-| IP | Basic | `User IP address` |
-| UserID (interno, no se muestra) | Basic | `User access index` |
-| Inicio de sesión | Basic | `Access start time` |
-| QoS entrada (nombre) | ACL&QoS | `Inbound QOS-profile-name` |
-| QoS salida (nombre) | ACL&QoS | `Outbound QOS-profile-name` |
-| PIR entrada | ACL&QoS | `Inbound pir` (kbps) |
-| CIR salida | ACL&QoS | `Outbound cir` (kbps) |
-
-### 5.2 Datos a graficar (tiempo real)
-
-La tasa se calcula a partir de **contadores QoS acumulados**, no de `Ipv4 Realtime speed`.
-Ese campo del BRAS refresca cada ~20-30 s y pierde picos; `Flow Statistic` tiene la misma
-cadencia. Los contadores QoS cambian en cada consulta.
-
-Comandos:
+Ejemplo de `sysDescr`:
 
 ```text
-display access-user username <usuario> verbose nop | no-more   # datos estáticos + User access index
-display qos user-id <UserID> inbound | no-more                  # subida
-display qos user-id <UserID> outbound | no-more                 # bajada
+Huawei Versatile Routing Platform Software VRP (R) software, Version 8.230 (NetEngine 8000 V800R023C00SPC500) Copyright (C) 2012-2023 Huawei Technologies Co., Ltd. HUAWEI NetEngine 8000 F1A-8H20Q
 ```
 
-Del segundo/tercer comando se parsea el bloque `[total]`:
+El parser toma lo que está entre paréntesis como versión
+(`NetEngine 8000 V800R023C00SPC500`) y `HUAWEI NetEngine 8000 F1A-8H20Q` como chasis.
 
-```text
- [total]
-  Pass:                            14,287,506 packets,                 8,941,651,101 bytes
-```
+### 5.2 Suscriptor y QoS (NETCONF)
 
-- **Subida (up)**: `inbound`, contador `Pass ... bytes`.
-- **Bajada (down)**: `outbound`, contador `Pass ... bytes`.
-- `outbound` = bajada e `inbound` = subida, desde el punto de vista del BRAS.
-- El `UserID` sale de `User access index` del verbose y se cachea al inicio de la sesión;
-  no se ejecuta un comando adicional para obtenerlo.
-- Si cualquiera de los comandos QoS no devuelve una salida parseable, el backend publica
-  `El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo.`, libera el
-  lease y cierra el SSE. El frontend muestra ese mensaje.
+Al hacer clic en **Monitorar**, fuera del poller y una sola vez por lease, se ejecutan dos
+consultas NETCONF:
+
+1. Usuario, con el filtro `urn:huawei:yang:huawei-bras-user-manage` por
+   `access-user-name`. Devuelve `access-index`, IP, MAC e inicio de sesión.
+2. Desconexiones, con el mismo namespace y `record-type=offline-record`,
+   `user-name=<usuario>` y `view-count=5`.
+
+En el poller se consulta QoS con `urn:huawei:yang:huawei-qos`, filtrando por el
+`access-index` inicial, `service-class=total` y `pass-bytes`:
+
+- `direction=inbound` → **subida**.
+- `direction=outbound` → **bajada**.
+- Se aplica la misma fórmula de delta/Mbps de siempre sobre `pass-bytes`.
+
+Los campos antiguos `in_qos`, `out_qos`, `in_pir_kbps` y `out_cir_kbps` se conservan en el
+schema por compatibilidad, pero ahora se emiten en `null` y no se muestran en el frontend.
+
+Si no hay contadores `total` para alguna dirección, el backend publica
+`El usuario no tiene contadores QoS disponibles para este tipo de monitoreo.`, libera el lease
+y cierra el SSE.
 
 ### 5.3 Histórico de conexiones
 
-Se consulta **una sola vez**, después del primer snapshot con `state="ok"`. Si el usuario no
-tiene conexión, no se ejecuta ninguna de las dos consultas y no se muestra el botón
+Se consulta **una sola vez**, cuando la consulta inicial de usuario devuelve `state="ok"`. Si el
+usuario no tiene conexión, no se ejecuta ninguna de las dos consultas y no se muestra el botón
 **Histórico**.
 
 Fuentes independientes (un fallo de una no afecta a la otra ni al monitoreo):
 
 ```text
-display aaa offline-record username <usuario> coun 5 | no-more   # BRAS
-GET <webservice>?accion=consulta-con&login=<usuario>            # API Radius
+NETCONF <bras-user-manage>/<online-fail-or-offline-records>  # BRAS
+GET <webservice>?accion=consulta-con&login=<usuario>         # API Radius
 ```
 
 - API Radius: hasta 80 conexiones; se toman las primeras 5 (ya vienen de la más nueva a la
   más vieja). Incluye inicio, fin, upload/download en **bytes**, NAS, causa, MAC e IP.
   Una conexión activa tiene `final` vacío.
-- BRAS: últimas 5 desconexiones con inicio, fin, IP, MAC, interfaz y motivo.
+- BRAS: últimas 5 desconexiones con inicio, fin, IP, MAC y motivo (`interface` queda `null`).
 - El frontend muestra **dos bloques separados** de hasta 5 filas cada uno:
   - API: inicio, fin, duración, subida, bajada, IP, MAC, causa.
   - BRAS: inicio, fin, duración, IP, MAC, motivo.
@@ -148,19 +143,21 @@ GET <webservice>?accion=consulta-con&login=<usuario>            # API Radius
 
 ## 6. Parser (`bras/parser.py`)
 
-- Cortar en secciones: cabecera = línea sin `:` y sin guiones; contenido = `linea.split(':', 1)`
-  → `strip()`. Usar `split(':', 1)` es obligatorio porque hay valores con `:` (ej. horas
-  `07:11:43`).
-- Valores `-` → `None`.
-- Del verbose extraer los campos de §5.1 (estáticos) y `user_id` desde `User access index`.
-- De QoS extraer el contador `Pass ... bytes` del bloque `[total]` para cada dirección.
+- Usar `xml.etree.ElementTree` (stdlib) sobre `reply.data_xml`; no se parsea texto de comandos.
+- De `<access-table>` extraer `access-index`, `access-ipaddress`, `access-mac-address` y
+  `access-start-time`.
+- De `<online-fail-or-offline-record>` extraer `login-time`, `offline-time`, `ipv4-address`,
+  `mac-address` y `online-fail-or-offline-reason`; la duración se calcula restando fechas.
+- De `<user-information>` tomar solo `service-class=total` y su `pass-bytes` por dirección;
+  no se suman clases parciales.
+- Los campos QoS estáticos antiguos quedan en `None`.
 
 ### 6.1 Estados según cantidad de bloques (sesiones del mismo usuario)
 
 | Bloques | Estado | Acción |
 |---|---|---|
 | 1 | `ok` | snapshot normal |
-| 0 | `sin_conexion` | mostrar "sin conexión", **cortar poller** y cerrar SSH |
+| 0 | `sin_conexion` | mostrar "sin conexión", **cortar poller** y cerrar NETCONF/SNMP |
 | >1 | `error` | "múltiples sesiones", **sin gráfica**; se mantiene polling por si cambia |
 
 ### 6.2 Cálculo de tasa
@@ -181,10 +178,10 @@ mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000
 
 ### 6.3 Cadencia y emisión
 
-- Los contadores QoS se consultan cada `POLL_INTERVAL=5s` con la misma conexión SSH.
-  El intervalo se mide de inicio a inicio: se descuenta el tiempo consumido por los comandos,
-  no se suma una espera completa después de cada consulta.
-- El verbose se sigue consultando cada ciclo para mantener actualizados MAC/IP/inicio/QoS.
+- Los contadores QoS se consultan cada `POLL_INTERVAL` (5 s en producción) con la misma
+  conexión NETCONF. El intervalo se mide de inicio a inicio: se descuenta el tiempo consumido
+  por la consulta, no se suma una espera completa después de cada consulta.
+- El usuario **no** se vuelve a consultar en el poller; MAC/IP/inicio se cachean al inicio.
 - **SSE emite solo cuando cambia** la tasa calculada o alguna métrica del NAS/estática.
 - `SAMPLE_MODE = on_change | every_poll` (configurable). `on_change` compara `up_mbps` y
   `down_mbps`; `every_poll` publica cada ciclo.
@@ -192,34 +189,39 @@ mbps = (bytes_actual - bytes_anterior) * 8 / (segundos_transcurridos * 1_000_000
 
 ### 6.4 Tests
 
-- `tests/test_parser.py`: verbose (1/0/>1 bloques, campos estáticos, `user_id`) y QoS
-  (`inbound`/`outbound`, `[total]`, formato CAR sin clases, salida inválida).
+- `tests/test_parser.py`: XML de usuario (1/0/>1 registros, campos estáticos, `access-index`),
+  desconexiones y QoS (`inbound`/`outbound`, solo `total`, salida inválida).
 - `tests/test_rates.py`: baseline inicial, delta, contador en cero, reset, cambio de sesión y
   muestra faltante.
 - `tests/test_monitor.py` cubre el flujo completo con contadores QoS simulados, el caso sin
-  perfil QoS y la carga única del histórico (incluido fallback independiente).
+  contadores QoS y la carga única del histórico (incluido fallback independiente).
+- `tests/test_bras_client.py`: conexión NETCONF, filtros y parseo devuelto por la fachada.
+- `tests/test_host_metrics.py`: parseo de `sysDescr`/versión y detección de cambios de host.
 - `tests/test_history.py`: parseo de `consulta-con`, límite de 5, conexión activa y respuesta
-  sin registros. `tests/test_parser.py` cubre el parseo de `offline-record`.
+  sin registros. `tests/test_parser.py` cubre el parseo de desconexiones NETCONF.
 
 ### 6.5 Métricas del NAS
 
-Además del abonado, cada ciclo del poller consulta el estado del NAS y lo publica en
+Además del abonado, el poller consulta el estado del NAS por SNMP y lo publica en
 `snapshot.host`:
 
-| Comando | Dato | Parseo |
+| OID | Dato | Destino |
 |---|---|---|
-| `display cpu-usage \| no-more` | CPU | `System cpu use rate is : 14%` → `host.cpu_percent` |
-| `display memory-usage \| no-more` | Memoria | `Memory Using Percentage Is: 14%` → `host.memory_percent` |
-| `display access-user summary` | Usuarios | `Total users : 8566` → `host.online_users` |
+| `1.3.6.1.4.1.2011.5.25.31.1.1.1.1.5.16842753` | CPU (avg 5 min) | `host.cpu_percent` |
+| `1.3.6.1.4.1.2011.5.25.31.1.1.1.1.7.16842753` | Memoria (avg 5 min) | `host.memory_percent` |
+| `1.3.6.1.4.1.2011.5.25.40.1.1.20.1.5.71` | Usuarios online | `host.online_users` |
 
-Se consultan en cada poll (5 s). Con `SAMPLE_MODE=on_change` el snapshot se emite si cambió
-el tráfico **o** alguna de estas métricas. Si un comando de métricas falla, no se corta la
-sesión: ese campo queda en `null` y se sigue monitoreando al abonado.
+Se consultan en el primer ciclo y luego cada `SNMP_POLL_INTERVAL` (5 s por defecto), no en cada
+`POLL_INTERVAL` para no gastar CPU del plano de control. Con `SAMPLE_MODE=on_change` el snapshot
+se emite si cambia el tráfico o alguna de estas métricas. Si SNMP falla, se publica
+`Error de SNMP: ...`, se libera el lease y se cierra el SSE.
+
 
 ## 7. Modelo de datos (Pydantic)
 
 ```python
 class StaticInfo(BaseModel):
+    # Campos QoS heredados: siempre null en la versión NETCONF.
     mac: str | None
     ip: str | None
     start_time: str | None
@@ -239,6 +241,10 @@ class HostMetrics(BaseModel):
     cpu_percent: int | None
     memory_percent: int | None
     online_users: int | None
+
+class SystemInfo(BaseModel):
+    chassis_name: str | None
+    software_version: str | None
 
 class MonitorSnapshot(BaseModel):
     username: str
@@ -289,13 +295,14 @@ Todas las apps consumen lo mismo. Auth REST con `Authorization: Bearer <jwt>`. E
 | POST | `/api/v1/auth/refresh` | cookie | renueva access token |
 | POST | `/api/v1/auth/logout` | — | borra cookie de refresh |
 | GET | `/api/v1/auth/me` | Bearer | usuario actual |
+| GET | `/api/v1/monitor/system/info` | Bearer | `{chassis_name, software_version}` desde SNMP; `502` si falla |
 | GET | `/api/v1/monitor/status` | Bearer | `{capacidad, ocupados, libres, leases[]}` (sin exponer el subscriber) |
 | GET | `/api/v1/online-users?prefix=...` | Bearer | usuarios con sesión activa en el NAS que empiezan con el prefijo (mín. 3); `400` prefijo inválido; `502` webservice |
-| POST | `/api/v1/monitor/leases` | Bearer | body `{username}` → `201 {lease_id, lease_token, username, expires_at, expires_in}`; `409` ocupado (`owner`, `expira_en`, `segundos_restantes`); `400` username inválido; `502` falla SSH |
+| POST | `/api/v1/monitor/leases` | Bearer | body `{username}` → `201 {lease_id, lease_token, username, expires_at, expires_in}`; `409` ocupado (`owner`, `expira_en`, `segundos_restantes`); `400` username inválido; `502` falla NETCONF |
 | GET | `/api/v1/monitor/stream?lease_token=...` | lease token | SSE |
 | GET | `/api/v1/monitor/snapshot` | Bearer + `X-Lease-Token` | último snapshot cacheado (apps sin SSE) |
 | POST | `/api/v1/monitor/heartbeat` | Bearer + `X-Lease-Token` | refresca liveness (`204`) |
-| DELETE | `/api/v1/monitor/leases` | Bearer + `X-Lease-Token` | release manual (cierra SSH, `204`) |
+| DELETE | `/api/v1/monitor/leases` | Bearer + `X-Lease-Token` | release manual (cierra NETCONF/SNMP, `204`) |
 | GET | `/api/v1/health` | — | healthcheck |
 | GET | `/api/docs` | — | OpenAPI/Swagger |
 
@@ -308,7 +315,7 @@ El `lease_token` se usa en query para el stream (EventSource no manda headers) y
 event: snapshot       data: {MonitorSnapshot}      # incluye state: ok|sin_conexion|error
 event: history        data: {MonitorHistory}       # una vez; se reenvía al reconectar
 event: expired        data: {"reason":"expired"}
-event: error          data: {"reason":"ssh_error"}
+event: error          data: {"reason":"ssh_error|netconf_error|snmp_error"}
 event: closed         data: {"reason":"manual|disconnected|heartbeat|shutdown"}
 : ping
 ```
@@ -350,8 +357,8 @@ Claves: `ONLINE_USERS_URL`, `ONLINE_USERS_NAS_IP`, `ONLINE_USERS_TIMEOUT`.
 
 ## 9. Lease / ciclo de vida
 
-**Caso A** (elegido): cada viewer monitorea un subscriber distinto → **1 slot = 1 viewer = 1 SSH
-+ 1 poller**. `MAX_SESIONES=1` hoy, escalable a 2-3.
+**Caso A** (elegido): cada viewer monitorea un subscriber distinto → **1 slot = 1 viewer =
+1 NETCONF + 1 SNMP + 1 poller**. `MAX_SESIONES=1` hoy, escalable a 2-3.
 
 ```
 LIBRE → ASIGNADO(conectando) → ACTIVO → LIBERANDO → LIBRE
@@ -359,15 +366,17 @@ LIBRE → ASIGNADO(conectando) → ACTIVO → LIBERANDO → LIBRE
 
 - **acquire** atómico (`asyncio.Lock`):
   - sin slot libre → `409 {owner, ocupado_desde, libera_en}`.
-  - slot libre → reserva, genera `lease_token`, conecta Netmiko; si falla → `502` y libera.
+  - slot libre → reserva, genera `lease_token`, conecta NETCONF, consulta el usuario y,
+    si está online, carga el histórico; si falla → `502` y libera.
 - **ACTIVO**: arranca poller (5 s) y `expires_at = acquire + SESSION_TTL (600 s)`.
 - **Liberación (4 vías)**:
   1. Botón "Cerrar conexión" (`DELETE`).
   2. Corte del SSE → tras `DISCONNECT_GRACE = 10s` (tolera microcortes; si reconecta con el mismo
      token dentro de la gracia, sigue).
   3. `HEARTBEAT_TTL = 45s` vencido (respaldo cuando el TCP no cierra, ej. red caída).
-  4. Expiración absoluta de 600 s (autoritativa) → cierra SSH, emite `expired`.
-- **SSH muerto**: reintento dentro del poll; si falla → libera y emite `error`.
+   4. Expiración absoluta de 600 s (autoritativa) → cierra NETCONF/SNMP, emite `expired`.
+- **NETCONF/SNMP caído**: la librería lanza error → libera y emite `error`.
+
 - **SIGTERM** (systemd stop): cierra todas las conexiones y libera.
 
 ## 10. Frontend (HTML/CSS/JS vanilla)
@@ -377,10 +386,10 @@ Páginas: `index.html` (login) y `monitor.html` (dashboard).
 Estados de pantalla:
 - `idle` — sin sesión.
 - `ocupado` — `409`: "En uso por X, mm:ss" + **Reintentar** (auto-retry cada 5 s).
-- `activo` — gráfica + cuenta regresiva 10:00 + botón **Cerrar conexión**.
+- `activo` — chasis/versión en la barra superior, gráfica + cuenta regresiva 10:00 + botón **Cerrar conexión**.
 - `sin_conexion` — usuario inexistente.
-- `error` — múltiples sesiones o ausencia de perfil QoS; en este último caso el backend
-  libera el lease y cierra el canal mostrando el mensaje correspondiente.
+- `error` — múltiples sesiones, error NETCONF/SNMP o ausencia de contadores QoS; en estos dos
+  últimos casos el backend libera el lease y cierra el canal mostrando el mensaje correspondiente.
 - `expirado` — TTL alcanzado.
 
 Gráfica: Chart.js 4 local (`frontend/vendor/chart.umd.min.js`), dos datasets (subida/bajada),
@@ -389,6 +398,9 @@ Colores: subida `#22d3ee`, bajada `#a78bfa`.
 
 Arriba de subida/bajada se muestran tres métricas del NAS: **CPU**, **memoria** y **usuarios
 online** (`snapshot.host`). Se actualizan con cada snapshot (solo cuando cambian).
+
+La barra superior muestra `<chasis> · <versión de software>` cuando responde
+`/api/v1/monitor/system/info`; si falla, se oculta el chip.
 
 Auth: access token en memoria, refresh token en cookie httpOnly (mismo origen).
 `js/config.js` con `API_BASE`, heartbeats cada 20 s y reintentos cada 5 s.
@@ -416,23 +428,22 @@ Claves:
 
 | Clave | Valor |
 |---|---|
-| `BRAS_HOST`, `BRAS_PORT` | datos del equipo |
-| `BRAS_USER`, `BRAS_PASSWORD`, `BRAS_SECRET` | credenciales |
-| `BRAS_DEVICE_TYPE` | `huawei` |
-| `BRAS_CONN_TIMEOUT`, `BRAS_READ_TIMEOUT` | timeouts SSH |
-| `COMMAND_TEMPLATE` | `display access-user username {username} verbose nop \| no-more` |
-| `CPU_COMMAND` | `display cpu-usage \| no-more` |
-| `MEMORY_COMMAND` | `display memory-usage \| no-more` |
-| `USERS_COMMAND` | `display access-user summary` |
-| `QOS_INBOUND_COMMAND` | `display qos user-id {user_id} inbound \| no-more` |
-| `QOS_OUTBOUND_COMMAND` | `display qos user-id {user_id} outbound \| no-more` |
-| `OFFLINE_HISTORY_COMMAND` | `display aaa offline-record username {username} coun {count} \| no-more` |
+| `BRAS_HOST` | host usado por defecto por NETCONF/SNMP |
+| `BRAS_USER`, `BRAS_PASSWORD` | credenciales heredadas del panel (no se usan para NETCONF) |
+| `NETCONF_HOST`, `NETCONF_PORT` | host/puerto NETCONF (default `830`) |
+| `NETCONF_USER`, `NETCONF_PASSWORD` | credenciales NETCONF |
+| `NETCONF_TIMEOUT` | timeout de conexión NETCONF |
+| `SNMP_HOST`, `SNMP_PORT` | host/puerto SNMP (default `161`) |
+| `SNMP_VERSION` | `2` (v2c) |
+| `SNMP_COMMUNITY` | community SNMP |
+| `SNMP_TIMEOUT`, `SNMP_RETRIES` | timeout/reintentos UDP |
+| `SNMP_POLL_INTERVAL` | **5** (separado de `POLL_INTERVAL`) |
 | `HISTORY_LIMIT` | `5` |
 | `USERNAME_REGEX` | charset seguro del abonado |
 | `JWT_SECRET`, `JWT_ALG`, `ACCESS_TTL`, `REFRESH_TTL` | auth |
 | `DATABASE_PATH` | SQLite de usuarios (default `backend/instance/bras_monitor.db`) |
 | `MAX_SESIONES` | `1` |
-| `POLL_INTERVAL` | **`5`** |
+| `POLL_INTERVAL` | `5` por defecto (en producción puede ser `3`) |
 | `SESSION_TTL` | `600` |
 | `DISCONNECT_GRACE` | `10` |
 | `HEARTBEAT_TTL` | `45` |
@@ -467,7 +478,7 @@ backend/
     config.py               # defaults + merge instance/config.py
     schemas.py              # Pydantic
     auth/{jwt.py,users.py,router.py}
-    bras/{client.py,parser.py}
+    bras/{client.py,parser.py,netconf.py,snmp.py,xml_filters.py}
     monitor/{lease.py,poller.py,rates.py,events.py,router.py}
     online_users.py         # proxy al webservice de usuarios online
     history.py              # consulta del historial de conexiones Radius
@@ -487,15 +498,20 @@ deploy/{backend.service,nginx.conf}
 
 ## 13. Componentes backend
 
-- **`bras/client.py`**: conexión Netmiko **persistente** (reusar canal), `terminal length 0` /
-  paginación off, `send_command`, timeouts, reconexión acotada.
-- **`bras/parser.py`**: verbose → datos estáticos + `user_id`; QoS → bytes acumulados (§6).
+- **`bras/client.py`**: fachada que combina `NetconfClient` y `SnmpClient`.
+- **`bras/netconf.py`**: conexión `ncclient` **persistente** por lease, filtros subtree y
+  reconexión acotada; sin `device_params` propietario.
+- **`bras/snmp.py`**: cliente asyncio de pysnmp 7 para CPU/memoria/usuarios/chasis/versión.
+- **`bras/xml_filters.py`**: filtros NETCONF para usuario, desconexiones y QoS.
+- **`bras/parser.py`**: XML NETCONF → datos estáticos + `access-index`, desconexiones y bytes
+  acumulados de QoS (§6).
 - **`monitor/rates.py`**: baseline y cálculo de Mbps por delta de contadores QoS.
 - **`monitor/lease.py`**: `LeaseManager` con slots, `acquire/release`, timers, gracia, heartbeat.
-- **`monitor/poller.py`**: task asyncio por slot; Netmiko bloqueante en threadpool
-  (`anyio.to_thread.run_sync`); cadencia `max(POLL_INTERVAL, dur_comando)`; snapshot con `version`.
-  Cachea el `user_id` al inicio, consulta QoS `inbound`/`outbound`, calcula tasas y en el mismo
-  ciclo consulta CPU/memoria/usuarios del NAS. Publica si cambió la tasa o alguna métrica.
+- **`monitor/poller.py`**: task asyncio por slot; NETCONF bloqueante en threadpool
+  (`anyio.to_thread.run_sync`); cadencia start-to-start descontando la duración de la consulta;
+  snapshot con `version`. Usa el `access-index` cacheado, consulta QoS `inbound`/`outbound` y
+  calcula tasas. Las métricas SNMP se consultan cada `SNMP_POLL_INTERVAL`. Publica si cambió la
+  tasa o alguna métrica.
 - **`monitor/events.py`**: generator SSE, keepalive, detección de corte (`GeneratorExit`/
   `CancelledError`), emisión solo en cambio.
 - **`online_users.py`**: proxy autenticado al webservice de dialup (`usuarios_online`),
@@ -506,9 +522,6 @@ deploy/{backend.service,nginx.conf}
 Artefactos: `deploy/backend.service` y `deploy/nginx.conf` (rutas de ejemplo `/opt/monitor-pppoe`).
 Flujo de actualización: **git pull** en producción; `backend/instance/config.py`, `.venv/` y la
 DB están gitignored, así que no se pisan.
-
-> Antes de desplegar: el repo local aún **no tiene commit ni remoto**. Crear el commit inicial y
-> pushearlo al remoto que se vaya a clonar en producción.
 
 ### 14.1 Instalación inicial en producción
 
@@ -533,7 +546,9 @@ sudo cp /opt/monitor-pppoe/backend/config.example.py /opt/monitor-pppoe/backend/
 sudo chown -R brasmonitor:brasmonitor /opt/monitor-pppoe/backend/instance
 sudo chmod 600 /opt/monitor-pppoe/backend/instance/config.py
 sudo -u brasmonitor nano /opt/monitor-pppoe/backend/instance/config.py
-#   - BRAS_HOST / BRAS_USER / BRAS_PASSWORD / BRAS_SECRET reales
+#   - NETCONF_HOST / NETCONF_PORT / NETCONF_USER / NETCONF_PASSWORD reales
+#   - SNMP_HOST / SNMP_PORT / SNMP_VERSION / SNMP_COMMUNITY / SNMP_TIMEOUT / SNMP_RETRIES
+#   - SNMP_POLL_INTERVAL (separado de POLL_INTERVAL)
 #   - JWT_SECRET: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 #   - COOKIE_SECURE = True      (detrás de HTTPS)
 #   - SERVE_FRONTEND = False    (nginx sirve el front)
@@ -590,7 +605,7 @@ sudo systemctl restart monitor-pppoe                                            
 ### 14.3 Notas
 
 - `uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1` (el unit ya lo hace).
-- **Obligatorio `workers=1`**: el lease vive en memoria; más workers = locks duplicados/SSH doble.
+- **Obligatorio `workers=1`**: el lease vive en memoria; más workers = locks duplicados/sesiones NETCONF duplicadas.
 - **systemd**: `Restart=always`, usuario sin privilegios, logs a journald, hardening
   (`ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges`; escritura solo en `backend/instance`).
 - **nginx**: `frontend/` en `/`, proxy `/api/` → uvicorn; `proxy_buffering off`,
@@ -613,8 +628,8 @@ sudo systemctl restart monitor-pppoe                                            
 ## 15. Seguridad
 
 - Credenciales del BRAS **solo en el backend**; nunca al navegador.
-- **Validar el username con regex estricta** antes de inyectarlo en la CLI del BRAS (evita
-  inyección de comandos VRP).
+- **Validar el username con regex estricta** y serializarlo con `xml.etree.ElementTree` antes de
+  mandarlo en el filtro NETCONF (evita inyección XML).
 - No loguear password ni la salida cruda (contiene datos del abonado).
 - Hash de contraseñas de usuarios (argon2/bcrypt).
 - Rate-limit en login.
@@ -626,10 +641,10 @@ sudo systemctl restart monitor-pppoe                                            
 
 ## 16. Calibraciones abiertas (ajustar sobre la marcha)
 
-1. **Contadores QoS**: verificar en producción que `[total] Pass bytes` crece de forma monótona
-   y que un reset del BRAS no genera un pico (el tracker reinicia el baseline).
-2. **UserID cacheado**: si el BRAS reutiliza el índice durante la sesión, las métricas quedarían
-   asociadas a otra sesión. El usuario aceptó el riesgo por ser monitoreo ocasional/diagnóstico.
+1. **Contadores QoS**: verificar en producción que `service-class=total / pass-bytes` crece de
+   forma monótona y que un reset del BRAS no genera un pico (el tracker reinicia el baseline).
+2. **Access-index cacheado**: si el BRAS reutiliza el índice durante la sesión, las métricas
+   quedarían asociadas a otra sesión. El usuario aceptó el riesgo por ser diagnóstico ocasional.
 3. **`SAMPLE_MODE`**: decidir si graficar `on_change` (solo cambios de tasa) o
    `every_poll` (paso fijo de 5 s). Default `on_change`.
 4. **`MAX_SESIONES`**: 1 hoy; evaluar 2-3 si se necesita monitoreo concurrente (Caso A).
@@ -653,12 +668,15 @@ sudo systemctl restart monitor-pppoe                                            
 - Actualización gráfica cada **5 s** (antes 3 s), emitiendo solo en cambio.
 - Velocidades en **Mbps**; dirección desde el punto de vista del BRAS (`inbound`=subida,
   `outbound`=bajada).
-- La tasa se obtiene de **contadores QoS** (`[total] Pass bytes`) por delta de 5 s, no de
-  `Ipv4 Realtime speed` ni `Flow Statistic` (refrescan cada ~20-30 s y pierden picos).
-- **Sin fallback**: si QoS no responde, no se publica tasa. El verbose se mantiene por ciclo
-  para datos estáticos; el `UserID` se cachea una sola vez al inicio.
-- Sin perfil QoS (`inbound`/`outbound` sin bytes parseables) → estado `error`, mensaje del
+- La tasa se obtiene de **contadores QoS** (`service-class=total / pass-bytes`) por delta de
+  5 s, no de `Ipv4 Realtime speed` ni `Flow Statistic` (refrescan cada ~20-30 s y pierden picos).
+- **Sin fallback**: si QoS no responde, no se publica tasa. El usuario se consulta una sola vez
+  al inicio; el `access-index` se cachea para todo el lease.
+- Sin contadores QoS (`inbound`/`outbound` sin `total/pass-bytes`) → estado `error`, mensaje del
   backend, liberación del lease y cierre del SSE; el frontend vuelve a `idle`.
+- Se eliminó Netmiko/CLI: NETCONF para usuario/QoS/desconexiones y SNMP para métricas del NAS.
+- SNMP se consulta cada `SNMP_POLL_INTERVAL` para no gastar CPU del plano de control en cada
+  `POLL_INTERVAL`.
 - Histórico: API y BRAS como fuentes independientes, 5 registros cada una, consultadas una
   sola vez tras confirmar conexión y emitidas por SSE. Si no hay conexión no se consultan.
 - Multi-sesión → error; inexistente → `sin_conexion` + cortar poller.

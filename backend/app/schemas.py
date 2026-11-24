@@ -32,6 +32,11 @@ class HostMetrics(BaseModel):
     online_users: Optional[int] = None
 
 
+class SystemInfo(BaseModel):
+    chassis_name: Optional[str] = None
+    software_version: Optional[str] = None
+
+
 class ParseResult(BaseModel):
     state: Literal["ok", "sin_conexion", "error"]
     error_msg: Optional[str] = None

@@ -1,4 +1,4 @@
-"""LeaseManager: recurso exclusivo = 1 conexión SSH + 1 poller por slot.
+"""LeaseManager: recurso exclusivo = 1 sesión NETCONF + 1 poller por slot.
 
 Caso A del diseño: cada viewer ocupa un slot y monitorea su propio subscriber.
 La cantidad de slots se controla con `MAX_SESIONES`.
@@ -18,13 +18,23 @@ from typing import Any, Callable
 import anyio
 
 from ..bras.client import BrasClient
-from ..bras.parser import parse_access_user, to_snapshot
+from ..bras.parser import to_snapshot
 from ..config import Settings
-from ..schemas import MonitorHistory, MonitorSnapshot
+from ..schemas import MonitorHistory, MonitorSnapshot, ParseResult
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _close_client(client: Any | None) -> None:
+    if client is None:
+        return
+    aclose = getattr(client, "aclose", None)
+    if aclose is not None:
+        await aclose()
+    else:
+        await anyio.to_thread.run_sync(client.close)
 
 
 class LeaseBusy(Exception):
@@ -46,6 +56,7 @@ class Lease:
     last_heartbeat: datetime
     state: str = "connecting"
     client: Any = None
+    initial_result: ParseResult | None = None
     snapshot: MonitorSnapshot | None = None
     history: MonitorHistory | None = None
     version: int = 0
@@ -137,14 +148,21 @@ class LeaseManager:
         try:
             client.validate_username(username)
             await anyio.to_thread.run_sync(client.connect)
+            lease.initial_result = await anyio.to_thread.run_sync(
+                client.get_access_user, username
+            )
+            if lease.initial_result.state == "ok":
+                from .poller import load_history
+
+                await load_history(self, lease, client)
         except Exception:
+            await _close_client(client)
             async with self._lock:
                 self._leases.pop(lease.id, None)
             raise
 
         lease.client = client
         lease.state = "active"
-        # Import local para evitar ciclo en tiempo de import.
         from .poller import run_poller
 
         lease.poller = asyncio.create_task(run_poller(self, lease))
@@ -167,9 +185,8 @@ class LeaseManager:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await poller
 
-        if lease.client is not None:
-            await anyio.to_thread.run_sync(lease.client.close)
-            lease.client = None
+        await _close_client(lease.client)
+        lease.client = None
 
         lease.state = "released"
 

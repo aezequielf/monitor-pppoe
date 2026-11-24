@@ -22,6 +22,15 @@
           </div>
         </div>
 
+        <div class="topbar__device" hidden>
+          <span class="device-chip">
+            <span class="device-chip__label">Equipo</span>
+            <span id="device-chassis-name">—</span>
+            <span class="device-chip__sep">·</span>
+            <span id="device-software-version">—</span>
+          </span>
+        </div>
+
         <div class="topbar__user">
           <span class="user-chip">
             <span class="user-chip__dot"></span>
@@ -167,10 +176,6 @@
               <div class="info-row"><dt>MAC</dt><dd class="mono" id="info-mac">—</dd></div>
               <div class="info-row"><dt>IP</dt><dd class="mono" id="info-ip">—</dd></div>
               <div class="info-row"><dt>Inicio</dt><dd id="info-start">—</dd></div>
-              <div class="info-row"><dt>QoS subida</dt><dd id="info-in-qos">—</dd></div>
-              <div class="info-row"><dt>QoS bajada</dt><dd id="info-out-qos">—</dd></div>
-              <div class="info-row"><dt>PIR subida</dt><dd id="info-in-pir">—</dd></div>
-              <div class="info-row"><dt>CIR bajada</dt><dd id="info-out-cir">—</dd></div>
             </dl>
           </aside>
         </div>
@@ -227,7 +232,7 @@
           <section class="history-block" id="history-bras-block" hidden>
             <div class="history-block__head">
               <h3>Últimas desconexiones</h3>
-              <span class="hint">BRAS</span>
+              <span class="hint">NETCONF</span>
             </div>
             <p class="history-note" id="history-bras-error" hidden></p>
             <p class="history-empty" id="history-bras-empty" hidden>Sin desconexiones registradas.</p>

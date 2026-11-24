@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+  <qos xmlns="urn:huawei:yang:huawei-qos">
+    <global-query>
+      <user-informations>
+        <user-information>
+          <id>21747</id>
+          <direction>inbound</direction>
+          <user-queue-statisticss>
+            <user-queue-statistics>
+              <service-class>total</service-class>
+              <pass-bytes>8941651101</pass-bytes>
+            </user-queue-statistics>
+          </user-queue-statisticss>
+        </user-information>
+        <user-information>
+          <id>21747</id>
+          <direction>outbound</direction>
+          <user-queue-statisticss>
+            <user-queue-statistics>
+              <service-class>total</service-class>
+              <pass-bytes>43149452521</pass-bytes>
+            </user-queue-statistics>
+          </user-queue-statisticss>
+        </user-information>
+      </user-informations>
+    </global-query>
+  </qos>
+</data>

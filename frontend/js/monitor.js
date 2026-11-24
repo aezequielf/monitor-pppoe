@@ -26,6 +26,9 @@ const els = {
   hostMemory: $("host-memory-value"),
   hostUsers: $("host-users-value"),
   userChip: $("user-chip-name"),
+  deviceBar: document.querySelector(".topbar__device"),
+  deviceChassis: $("device-chassis-name"),
+  deviceVersion: $("device-software-version"),
   chartCanvas: $("traffic-chart"),
   historyBtn: $("history-btn"),
   historyModal: $("history-modal"),
@@ -43,10 +46,6 @@ const els = {
     mac: $("info-mac"),
     ip: $("info-ip"),
     start: $("info-start"),
-    inQos: $("info-in-qos"),
-    outQos: $("info-out-qos"),
-    inPir: $("info-in-pir"),
-    outCir: $("info-out-cir"),
   },
 };
 
@@ -165,14 +164,21 @@ function resetHostMetrics() {
   setHostMetrics(null);
 }
 
+async function loadDeviceInfo() {
+  try {
+    const info = await withRefresh(() => api.systemInfo());
+    setText(els.deviceChassis, info.chassis_name);
+    setText(els.deviceVersion, info.software_version);
+    els.deviceBar.hidden = false;
+  } catch {
+    els.deviceBar.hidden = true;
+  }
+}
+
 function updateInfo(info) {
   setText(els.info.mac, info.mac);
   setText(els.info.ip, info.ip);
   setText(els.info.start, info.start_time);
-  setText(els.info.inQos, info.in_qos);
-  setText(els.info.outQos, info.out_qos);
-  setText(els.info.inPir, info.in_pir_kbps, " kbps");
-  setText(els.info.outCir, info.out_cir_kbps, " kbps");
 }
 
 function formatBytes(value) {
@@ -459,6 +465,16 @@ function openStream() {
     renderHistory(data);
   });
 
+  stream.addEventListener("error", (event) => {
+    let reason = "";
+    try {
+      reason = JSON.parse(event.data).reason;
+    } catch {
+      /* ignorar */
+    }
+    endSession(closedMessage(reason));
+  });
+
   stream.addEventListener("expired", () => {
     endSession("La sesión de monitoreo expiró (10 minutos).");
   });
@@ -536,9 +552,13 @@ function closedMessage(reason) {
     case "shutdown":
       return "El servidor cerró la sesión.";
     case "ssh_error":
-      return "Se perdió la conexión SSH con el BRAS.";
+      return "Se perdió la conexión con el BRAS.";
+    case "netconf_error":
+      return "Se perdió la conexión NETCONF con el BRAS.";
+    case "snmp_error":
+      return "No se pudieron consultar las métricas SNMP del BRAS.";
     case "qos_missing":
-      return "El usuario no tiene un perfil de QoS asignado para este tipo de monitoreo.";
+      return "El usuario no tiene contadores QoS disponibles para este tipo de monitoreo.";
     default:
       return "La sesión de monitoreo finalizó.";
   }
@@ -692,6 +712,8 @@ async function boot() {
     location.replace(CONFIG.LOGIN_PAGE);
     return;
   }
+
+  await loadDeviceInfo();
 
   try {
     const user = await api.me();

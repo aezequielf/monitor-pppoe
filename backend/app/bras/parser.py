@@ -1,14 +1,8 @@
-"""Parseo de las salidas del BRAS.
-
-- `display access-user username <user> verbose`: datos estáticos y UserID.
-- `display qos user-id <id> inbound|outbound`: contadores acumulados de bytes.
-
-La tasa se calcula en `monitor/rates.py` a partir de esos contadores.
-"""
+"""Parseo de respuestas XML de NETCONF del BRAS."""
 
 from __future__ import annotations
 
-import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -19,128 +13,12 @@ from ..schemas import (
     StaticInfo,
 )
 
-_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
-
-def _is_separator(line: str) -> bool:
-    stripped = line.strip()
-    return len(stripped) >= 3 and set(stripped) == {"-"}
-
-
-def _split_blocks(raw: str) -> list[str]:
-    """Devuelve los bloques que contienen el detalle de una sesión."""
-    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    blocks: list[str] = []
-    current: list[str] = []
-
-    def flush() -> None:
-        text = "\n".join(current)
-        if "user access index" in text.lower():
-            blocks.append(text)
-        current.clear()
-
-    for line in lines:
-        if _is_separator(line):
-            flush()
-            continue
-        # Si el BRAS no separa con guiones, una nueva sesión reinicia en "Basic:".
-        if line.strip().lower() == "basic:" and any(
-            item.strip().lower() == "basic:" for item in current
-        ):
-            flush()
-        current.append(line)
-
-    flush()
-    return blocks
-
-
-def _parse_fields(block: str) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    for line in block.split("\n"):
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        key = key.strip().lower()
-        if not key:
-            continue
-        fields[key] = value.strip()
-    return fields
-
-
-def _text(fields: dict[str, str], key: str) -> Optional[str]:
-    value = fields.get(key)
+def _text(value: str | None) -> Optional[str]:
     if value is None:
         return None
     value = value.strip()
-    if value in ("", "-"):
-        return None
-    return value
-
-
-def _first_int(fields: dict[str, str], key: str) -> Optional[int]:
-    value = _text(fields, key)
-    if value is None:
-        return None
-    match = _NUMBER_RE.search(value)
-    return int(float(match.group())) if match else None
-
-
-def parse_access_user(raw: str) -> ParseResult:
-    """Convierte la salida cruda del BRAS en un `ParseResult`.
-
-    - 0 bloques  -> `sin_conexion` (usuario inexistente / sin sesión).
-    - >1 bloques -> `error` (múltiples sesiones para el mismo usuario).
-    - 1 bloque   -> `ok` con datos estáticos y `user_id`.
-    """
-    blocks = _split_blocks(raw)
-    if not blocks:
-        return ParseResult(state="sin_conexion")
-    if len(blocks) > 1:
-        return ParseResult(
-            state="error",
-            error_msg=f"Múltiples sesiones activas para el usuario ({len(blocks)})",
-        )
-
-    fields = _parse_fields(blocks[0])
-
-    static = StaticInfo(
-        mac=_text(fields, "user mac"),
-        ip=_text(fields, "user ip address"),
-        start_time=_text(fields, "access start time"),
-        in_qos=_text(fields, "inbound qos-profile-name"),
-        out_qos=_text(fields, "outbound qos-profile-name"),
-        in_pir_kbps=_first_int(fields, "inbound pir"),
-        out_cir_kbps=_first_int(fields, "outbound cir"),
-    )
-
-    return ParseResult(
-        state="ok",
-        static=static,
-        user_id=_first_int(fields, "user access index"),
-    )
-
-
-def _split_record_blocks(raw: str) -> list[str]:
-    """Separa registros de desconexiones del bloque de historial offline."""
-    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    blocks: list[str] = []
-    current: list[str] = []
-
-    def flush() -> None:
-        text = "\n".join(current)
-        lowered = text.lower()
-        if "user name" in lowered and "user login time" in lowered:
-            blocks.append(text)
-        current.clear()
-
-    for line in lines:
-        if _is_separator(line):
-            flush()
-            continue
-        current.append(line)
-
-    flush()
-    return blocks
+    return value or None
 
 
 def _duration_seconds(start: Optional[str], end: Optional[str]) -> Optional[int]:
@@ -155,25 +33,69 @@ def _duration_seconds(start: Optional[str], end: Optional[str]) -> Optional[int]
     return seconds if seconds >= 0 else None
 
 
-def parse_offline_records(raw: str) -> list[HistoryDisconnection]:
-    """Convierte `display aaa offline-record` en registros estructurados."""
+def parse_access_user(xml: str) -> ParseResult:
+    root = ET.fromstring(xml)
+    tables = root.findall(".//{*}access-table")
+    if not tables:
+        return ParseResult(state="sin_conexion")
+    if len(tables) > 1:
+        return ParseResult(
+            state="error",
+            error_msg=f"Múltiples sesiones activas para el usuario ({len(tables)})",
+        )
+
+    table = tables[0]
+    basic = table.find(".//{*}access-user-basic-info")
+    static = StaticInfo(
+        mac=_text(basic.findtext("{*}access-mac-address")) if basic is not None else None,
+        ip=_text(basic.findtext("{*}access-ipaddress")) if basic is not None else None,
+        start_time=_text(basic.findtext("{*}access-start-time"))
+        if basic is not None
+        else None,
+    )
+    raw_index = _text(table.findtext("{*}access-index"))
+    user_id = int(raw_index) if raw_index and raw_index.isdigit() else None
+    return ParseResult(state="ok", static=static, user_id=user_id)
+
+
+def parse_offline_records(xml: str) -> list[HistoryDisconnection]:
+    root = ET.fromstring(xml)
     records: list[HistoryDisconnection] = []
-    for block in _split_record_blocks(raw):
-        fields = _parse_fields(block)
-        start = _text(fields, "user login time")
-        end = _text(fields, "user offline time")
+    for record in root.findall(".//{*}online-fail-or-offline-record"):
+        start = _text(record.findtext("{*}login-time"))
+        end = _text(record.findtext("{*}offline-time"))
         records.append(
             HistoryDisconnection(
                 start=start,
                 end=end,
                 duration_seconds=_duration_seconds(start, end),
-                reason=_text(fields, "user offline reason"),
-                mac=_text(fields, "user mac"),
-                ip=_text(fields, "user ip address"),
-                interface=_text(fields, "user access interface"),
+                reason=_text(record.findtext("{*}online-fail-or-offline-reason")),
+                mac=_text(record.findtext("{*}mac-address")),
+                ip=_text(record.findtext("{*}ipv4-address")),
             )
         )
     return records
+
+
+def parse_qos_counters(xml: str) -> tuple[int | None, int | None]:
+    root = ET.fromstring(xml)
+    up_bytes: int | None = None
+    down_bytes: int | None = None
+    for user in root.findall(".//{*}user-information"):
+        direction = _text(user.findtext("{*}direction"))
+        for stat in user.findall(".//{*}user-queue-statistics"):
+            service_class = _text(stat.findtext("{*}service-class"))
+            if service_class and service_class.lower() != "total":
+                continue
+            raw_bytes = _text(stat.findtext("{*}pass-bytes"))
+            if not raw_bytes or not raw_bytes.isdigit():
+                continue
+            value = int(raw_bytes)
+            if direction == "inbound" and up_bytes is None:
+                up_bytes = value
+            elif direction == "outbound" and down_bytes is None:
+                down_bytes = value
+    return up_bytes, down_bytes
 
 
 def to_snapshot(
@@ -194,69 +116,3 @@ def to_snapshot(
         latest=result.latest,
         host=result.host,
     )
-
-
-# --- Métricas del NAS (CPU / memoria / usuarios online) ------------------
-
-_CPU_RE = re.compile(
-    r"System cpu use rate is\s*:\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
-)
-_MEMORY_RE = re.compile(
-    r"Memory Using Percentage Is\s*:\s*(\d+(?:\.\d+)?)\s*%", re.IGNORECASE
-)
-_TOTAL_USERS_RE = re.compile(r"Total users\s*:\s*(\d+)", re.IGNORECASE)
-
-
-def _percent(raw: str, pattern: re.Pattern[str]) -> Optional[int]:
-    match = pattern.search(raw)
-    if match is None:
-        return None
-    return int(round(float(match.group(1))))
-
-
-def parse_cpu_usage(raw: str) -> Optional[int]:
-    """Extrae `System cpu use rate is : NN%` de `display cpu-usage`."""
-    return _percent(raw, _CPU_RE)
-
-
-def parse_memory_usage(raw: str) -> Optional[int]:
-    """Extrae `Memory Using Percentage Is: NN%` de `display memory-usage`."""
-    return _percent(raw, _MEMORY_RE)
-
-
-def parse_access_user_summary(raw: str) -> Optional[int]:
-    """Extrae `Total users : N` de `display access-user summary`."""
-    match = _TOTAL_USERS_RE.search(raw)
-    return int(match.group(1)) if match else None
-
-
-# --- Contadores QoS por usuario -----------------------------------------
-
-_QOS_CLASS_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$", re.MULTILINE)
-_QOS_PASS_RE = re.compile(
-    r"^\s*Pass:\s*[\d,]+\s+packets,\s*([\d,]+)\s+bytes", re.MULTILINE
-)
-
-
-def _pass_bytes(block: str) -> Optional[int]:
-    match = _QOS_PASS_RE.search(block)
-    if match is None:
-        return None
-    return int(match.group(1).replace(",", ""))
-
-
-def parse_qos_pass_bytes(raw: str) -> Optional[int]:
-    """Extrae los bytes acumulados del bloque `[total]` de `display qos user-id`.
-
-    Si el equipo no muestra clases y devuelve directamente las estadísticas CAR,
-    se usa la primera línea `Pass:` del bloque.
-    """
-    classes = list(_QOS_CLASS_RE.finditer(raw))
-    for index, match in enumerate(classes):
-        if match.group(1).strip().lower() != "total":
-            continue
-        end = classes[index + 1].start() if index + 1 < len(classes) else len(raw)
-        return _pass_bytes(raw[match.end() : end])
-    # Sin bloques de clase el equipo puede devolver directamente las
-    # estadísticas CAR. Si hay clases pero falta `[total]`, no se adivina.
-    return None if classes else _pass_bytes(raw)
